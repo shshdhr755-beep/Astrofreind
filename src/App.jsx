@@ -1,465 +1,111 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "./supabase";
+import { experts, services, getPrice } from "./data/catalog";
 
-const experts = [
-  { name: "Pandit Deepak Sharma", level: "Senior" },
-  { name: "Madhuri Charan", level: "Senior" },
-  { name: "Ram Raheem Sharma", level: "Senior" },
-  { name: "Nita Kulkarni", level: "Senior" },
-  { name: "Naina Sharma", level: "Senior" },
-  { name: "Mahira Desai", level: "Senior" },
-  { name: "Mohan Lal", level: "Other" },
-  { name: "Sh. Rameshwar Datt Sharma", level: "Senior" },
-  { name: "Sh. Mast Ram", level: "Senior" },
-  { name: "Sh. Bhajna Nand", level: "Other" },
-  { name: "Sh. Ganesh Dutt", level: "Senior" },
-  { name: "Sh. Vidya Sagar Sharma", level: "Other" },
-  { name: "Sh. T. Narayanan Namboodri", level: "Senior" },
-  { name: "Shri M. Raghavan Achari", level: "Senior" },
-  { name: "Smt. A.K. Vaisalakshy", level: "Other" },
-  { name: "Sh. K.V. Pokkan Panicker", level: "Other" },
-  { name: "Smt. T.R. Meenakshi", level: "Other" },
-  { name: "Smt. R. Mangalam", level: "Other" },
-  { name: "Smt. N. Meenakshi Ammal", level: "Other" },
-  { name: "Smt. K.S. Rugmani Ammal", level: "Other" },
-  { name: "Smt. K.R. Thangammal", level: "Other" },
-  { name: "Sh. K.R. Thiruvenkatanatha Sarma", level: "Other" },
-  { name: "Smt. N.S. Muthu Lakshmi", level: "Other" },
-  { name: "Sh. Pappukuttan Ali’s Appukuttan Panicker", level: "Other" },
-  { name: "Sh. K.M. Parameswaran Namboodri", level: "Senior" },
-  { name: "Sh. Haridathan Namboothiri", level: "Senior" },
-  { name: "Sh. A.K. Vasu", level: "Other" },
-  { name: "Smt. P.V. Narayani Ammal", level: "Other" },
-  { name: "Smt. A. Sreedevi Antharjanam", level: "Senior" },
-];
-
-const services = [
-  { name: "Basic Kundli", senior: 49, other: 39 },
-  { name: "Daily Horoscope", senior: 0, other: 0 },
-  { name: "Kundli Matching", senior: 99, other: 79 },
-  { name: "Chat – 5 Minutes", senior: 25, other: 20 },
-  { name: "Chat – 30 Minutes", senior: 99, other: 79 },
-  { name: "Detailed Kundli", senior: 199, other: 149 },
-  { name: "Personal Consultation – 30 Minutes", senior: 199, other: 149 },
-];
-
-const getPrice = (expert, service) => {
-  if (!expert || !service) return 0;
-  return expert.level === "Senior" ? service.senior : service.other;
-};
-
-export default function App() {
-  const [selectedExpert, setSelectedExpert] = useState(null);
-  const [selectedService, setSelectedService] = useState(services[0]);
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("All");
-  const [booking, setBooking] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", message: "" });
-  const [notice, setNotice] = useState("");
-
+function AppShell() {
   const [user, setUser] = useState(null);
-  const [authOpen, setAuthOpen] = useState(false);
-  const [authMode, setAuthMode] = useState("login");
-  const [authName, setAuthName] = useState("");
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [otp, setOtp] = useState("");
-  const [authNotice, setAuthNotice] = useState("");
-  const [authBusy, setAuthBusy] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState(false);
+  const location = useLocation();
 
   useEffect(() => {
-    let active = true;
-
+    let alive = true;
     supabase.auth.getSession().then(({ data, error }) => {
-      if (!active) return;
       if (error) console.error("Session check:", error.message);
-      setUser(data?.session?.user ?? null);
+      if (!alive) return;
+      const sessionUser = data?.session?.user ?? null;
+      setUser(sessionUser?.email_confirmed_at ? sessionUser : null);
+      setAuthReady(true);
     });
-
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      const sessionUser = session?.user ?? null;
+      // Unconfirmed sessions must never unlock customer-only pages.
+      setUser(sessionUser?.email_confirmed_at ? sessionUser : null);
     });
-
-    return () => {
-      active = false;
-      listener?.subscription?.unsubscribe();
-    };
+    return () => { alive = false; listener?.subscription?.unsubscribe(); };
   }, []);
 
-  const filteredExperts = useMemo(() => {
-    return experts.filter((expert) => {
-      const matchesSearch = expert.name.toLowerCase().includes(search.toLowerCase());
-      const matchesFilter = filter === "All" || expert.level === filter;
-      return matchesSearch && matchesFilter;
-    });
-  }, [search, filter]);
+  useEffect(() => { setMobileMenu(false); window.scrollTo(0, 0); }, [location.pathname]);
 
-  const price = getPrice(selectedExpert, selectedService);
-
-  const openAuth = (mode = "login") => {
-    setAuthMode(mode);
-    setAuthNotice("");
-    setOtp("");
-    setAuthOpen(true);
-  };
-
-  const closeAuth = () => {
-    setAuthOpen(false);
-    setAuthNotice("");
-    setOtp("");
-  };
-
-  const openBooking = (expert, service = services[0]) => {
-    setSelectedExpert(expert);
-    setSelectedService(service);
-    setBooking(true);
-    setNotice("");
-  };
-
-  const submitBooking = (e) => {
-    e.preventDefault();
-    if (!selectedExpert) return;
-    if (!user) {
-      setBooking(false);
-      openAuth("login");
-      setAuthNotice("Booking request bhejne ke liye pehle login karein.");
-      return;
-    }
-    setNotice("आप login हैं। Booking को database से जोड़ना अगला चरण है; यह request अभी save नहीं हुई है।");
-  };
-
-  const handleSignup = async (e) => {
-    e.preventDefault();
-    setAuthNotice("");
-
-    if (!authName.trim()) return setAuthNotice("अपना पूरा नाम दर्ज करें।");
-    if (authPassword.length < 6) return setAuthNotice("Password कम से कम 6 characters का होना चाहिए।");
-    if (authPassword !== confirmPassword) return setAuthNotice("दोनों password एक जैसे नहीं हैं।");
-
-    setAuthBusy(true);
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: authEmail.trim(),
-        password: authPassword,
-        options: { data: { full_name: authName.trim() } },
-      });
-      if (error) throw error;
-
-      if (data.session) {
-        setUser(data.user);
-        setAuthNotice("Account बन गया और आप login हो चुके हैं।");
-      } else {
-        setAuthMode("verify");
-        setAuthNotice("Signup request भेज दी गई। अगर email template OTP पर सेट है, तो email में आया 6-digit code डालें। Inbox और Spam folder देखें।");
-      }
-    } catch (error) {
-      setAuthNotice(error.message || "Signup नहीं हो पाया।");
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const handleVerifyOtp = async (e) => {
-    e.preventDefault();
-    setAuthNotice("");
-    if (!/^\d{6}$/.test(otp)) {
-      setAuthNotice("कृपया 6 अंकों का OTP दर्ज करें।");
-      return;
-    }
-
-    setAuthBusy(true);
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: authEmail.trim(),
-        token: otp,
-        type: "signup",
-      });
-      if (error) throw error;
-      setUser(data.user);
-      setAuthNotice("Email verify हो गया! आपका account तैयार है।");
-    } catch (error) {
-      setAuthNotice(error.message || "OTP verify नहीं हुआ।");
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setAuthNotice("");
-    setAuthBusy(true);
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: authEmail.trim(),
-        password: authPassword,
-      });
-      if (error) throw error;
-      setUser(data.user);
-      setAuthNotice("Login successful!");
-    } catch (error) {
-      setAuthNotice(error.message || "Login नहीं हो पाया।");
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const handleLogout = async () => {
+  const logout = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    setUser(null);
+    if (error) window.alert(error.message);
+    else setUser(null);
   };
 
-  const styles = `
-    * { box-sizing: border-box; }
-    body { margin: 0; background: #100b20; color: #fff; font-family: Arial, sans-serif; }
-    button, input, select, textarea { font: inherit; }
-    button { cursor: pointer; }
-    button:disabled { opacity: .6; cursor: wait; }
-    .app { min-height: 100vh; background: radial-gradient(circle at top right, #392052 0, #100b20 42%); }
-    .nav { display:flex; align-items:center; justify-content:space-between; padding:20px 7%; border-bottom:1px solid #ffffff18; gap:15px; }
-    .logo { font-size:25px; font-weight:800; color:#f3c76b; letter-spacing:.5px; white-space:nowrap; }
-    .nav-right { display:flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:flex-end; }
-    .nav-link { color:#eee; text-decoration:none; font-size:14px; }
-    .nav-btn { border:1px solid #e9c16b; color:#f1cb78; background:transparent; border-radius:20px; padding:9px 15px; }
-    .user-label { color:#d8cfe2; font-size:13px; }
-    .hero { padding:75px 8% 65px; text-align:center; }
-    .eyebrow { color:#e9c16b; text-transform:uppercase; letter-spacing:3px; font-size:12px; font-weight:bold; }
-    .hero h1 { font-size:clamp(36px,6vw,65px); margin:17px 0; line-height:1.1; }
-    .hero h1 span { color:#efc66d; }
-    .hero p { color:#c9c1d7; max-width:620px; margin:0 auto; line-height:1.8; }
-    .primary { border:0; border-radius:30px; padding:14px 25px; background:linear-gradient(120deg,#e9bd61,#f5d88f); color:#21142d; font-weight:bold; margin-top:27px; }
-    .section { padding:45px 7%; }
-    .section-title { text-align:center; margin-bottom:30px; }
-    .section-title h2 { font-size:30px; margin:0 0 10px; }
-    .section-title p { color:#bdb3ce; margin:0; }
-    .service-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:15px; }
-    .service { background:#211832; border:1px solid #ffffff16; border-radius:16px; padding:22px; }
-    .service h3 { margin:0 0 12px; font-size:17px; }
-    .service-price { color:#efc66d; font-size:24px; font-weight:bold; }
-    .service small { color:#bdb3ce; display:block; margin-top:8px; }
-    .controls { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin:25px 0; }
-    .controls input, .controls select { background:#211832; border:1px solid #ffffff2a; color:white; padding:12px 15px; border-radius:10px; }
-    .expert-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:18px; }
-    .expert { background:linear-gradient(145deg,#281d3d,#1b142a); border:1px solid #ffffff19; border-radius:17px; padding:22px; }
-    .avatar { width:58px; height:58px; display:grid; place-items:center; border-radius:50%; background:#49315c; color:#f1cb78; font-size:24px; font-weight:bold; }
-    .expert h3 { font-size:17px; margin:15px 0 8px; min-height:38px; }
-    .tag { display:inline-block; background:#49351e; color:#f1cb78; border-radius:20px; padding:5px 10px; font-size:11px; }
-    .expert p { color:#c5bbd3; font-size:13px; }
-    .expert button { width:100%; padding:11px; border:1px solid #e9c16b; border-radius:9px; background:transparent; color:#f1cb78; margin-top:8px; }
-    .expert button:hover { background:#e9c16b; color:#20142b; }
-    .booking-panel, .auth-panel { position:fixed; inset:0; background:#000b; display:grid; place-items:center; padding:15px; z-index:10; }
-    .auth-panel { z-index:20; background:#000c; }
-    .booking-box, .auth-box { width:min(480px,100%); max-height:92vh; overflow:auto; background:#211832; border:1px solid #ffffff25; border-radius:18px; padding:25px; }
-    .booking-box h2, .auth-box h2 { margin-top:0; color:#f1cb78; }
-    .booking-box input, .booking-box select, .booking-box textarea, .auth-box input { display:block; width:100%; margin:12px 0; background:#120d20; border:1px solid #ffffff2b; color:white; border-radius:9px; padding:12px; }
-    .booking-box label, .auth-box label { color:#d8cfe2; font-size:13px; }
-    .booking-actions { display:flex; gap:10px; }
-    .booking-actions button { flex:1; padding:12px; border-radius:9px; border:0; font-weight:bold; }
-    .confirm, .auth-submit { background:#e9c16b; color:#21142d; }
-    .cancel { background:#40334f; color:white; }
-    .notice { color:#f1cb78; line-height:1.6; font-size:13px; overflow-wrap:anywhere; }
-    .auth-box { width:min(440px,100%); }
-    .auth-box .muted { color:#c5bbd3; font-size:13px; line-height:1.6; }
-    .auth-submit { width:100%; border:0; border-radius:9px; padding:13px; font-weight:bold; margin-top:8px; }
-    .auth-switch { color:#f1cb78; background:none; border:0; padding:12px 0 0; text-decoration:underline; }
-    .footer { text-align:center; padding:35px 15px; border-top:1px solid #ffffff18; color:#a99dbb; font-size:13px; }
-    @media(max-width:600px) {
-      .nav { padding:17px 5%; align-items:flex-start; flex-direction:column; }
-      .nav-right { justify-content:flex-start; gap:12px; }
-      .nav-link { font-size:12px; }
-      .hero { padding:60px 6%; }
-      .section { padding:35px 5%; }
-    }
-  `;
-
-  return (
-    <div className="app">
-      <style>{styles}</style>
-
-      <nav className="nav">
-        <div className="logo">✦ AstroFriend</div>
-        <div className="nav-right">
-          <a className="nav-link" href="#services">Services</a>
-          <a className="nav-link" href="#experts">Experts</a>
-          {user ? (
-            <>
-              <span className="user-label">{user.user_metadata?.full_name || user.email}</span>
-              <button className="nav-btn" onClick={handleLogout}>Logout</button>
-            </>
-          ) : (
-            <>
-              <button className="nav-btn" onClick={() => openAuth("login")}>Login</button>
-              <button className="nav-btn" onClick={() => openAuth("signup")}>Sign Up</button>
-            </>
-          )}
-        </div>
+  if (!authReady) return <div className="loading-screen">✦ AstroFriend</div>;
+  return <div className="app-shell">
+    <header className="navbar">
+      <Link className="brand" to="/"><span className="brand-icon">✦</span><span>Astro<span>Friend</span></span></Link>
+      <button className="menu-toggle" onClick={() => setMobileMenu(v => !v)} aria-label="Toggle navigation">☰</button>
+      <nav className={mobileMenu ? "nav-links open" : "nav-links"}>
+        <NavLink to="/">Home</NavLink><NavLink to="/services">Services</NavLink><NavLink to="/experts">Experts</NavLink>
+        {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/chat">Chat</NavLink></>}
       </nav>
-
-      <header className="hero">
-        <div className="eyebrow">Welcome to AstroFriend</div>
-        <h1>Discover Your <span>Cosmic Path</span></h1>
-        <p>
-          Connect with astrology experts for Kundli, horoscope,
-          compatibility and personal consultations.
-        </p>
-        <button className="primary" onClick={() =>
-          document.getElementById("experts")?.scrollIntoView({ behavior: "smooth" })
-        }>
-          Explore Experts
-        </button>
-      </header>
-
-      <section className="section" id="services">
-        <div className="section-title">
-          <h2>Our Services</h2>
-          <p>Choose the service you need</p>
-        </div>
-        <div className="service-grid">
-          {services.map((service) => (
-            <div className="service" key={service.name}>
-              <h3>{service.name}</h3>
-              {service.senior === 0 ? (
-                <div className="service-price">FREE</div>
-              ) : (
-                <>
-                  <div className="service-price">₹{service.other} – ₹{service.senior}</div>
-                  <small>Price depends on the selected expert</small>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="section" id="experts">
-        <div className="section-title">
-          <h2>Meet Our Experts</h2>
-          <p>Choose an expert and view their consultation charges</p>
-        </div>
-        <div className="controls">
-          <input type="text" placeholder="Search expert name..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="All">All Experts</option>
-            <option value="Senior">Senior Experts</option>
-            <option value="Other">Other Experts</option>
-          </select>
-        </div>
-        <div className="expert-grid">
-          {filteredExperts.map((expert) => (
-            <div className="expert" key={expert.name}>
-              <div className="avatar">{expert.name.charAt(0)}</div>
-              <h3>{expert.name}</h3>
-              <span className="tag">{expert.level === "Senior" ? "Senior Expert" : "Expert"}</span>
-              <p>{expert.level === "Senior" ? "Senior category consultation rates" : "Affordable consultation rates"}</p>
-              <button onClick={() => openBooking(expert)}>View Charges & Book</button>
-            </div>
-          ))}
-        </div>
-        {filteredExperts.length === 0 && <p style={{ textAlign: "center", color: "#c5bbd3" }}>No experts found.</p>}
-      </section>
-
-      {booking && selectedExpert && (
-        <div className="booking-panel" onClick={() => setBooking(false)}>
-          <div className="booking-box" onClick={(e) => e.stopPropagation()}>
-            <h2>Book Consultation</h2>
-            <p>{selectedExpert.name}</p>
-            <span className="tag">{selectedExpert.level === "Senior" ? "Senior Expert" : "Expert"}</span>
-            <form onSubmit={submitBooking}>
-              <label>Select Service</label>
-              <select
-                value={selectedService.name}
-                onChange={(e) => {
-                  const service = services.find((item) => item.name === e.target.value);
-                  setSelectedService(service);
-                  setNotice("");
-                }}
-              >
-                {services.map((service) => <option key={service.name} value={service.name}>{service.name}</option>)}
-              </select>
-              <p style={{ color: "#efc66d", fontSize: 23, fontWeight: "bold" }}>{price === 0 ? "FREE" : `₹${price}`}</p>
-              <label>Your Name</label>
-              <input required placeholder="Enter your name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-              <label>Mobile Number (Optional)</label>
-              <input type="tel" placeholder="Enter mobile number (optional)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-              <label>Message (Optional)</label>
-              <textarea rows="3" placeholder="Tell us what you need help with" value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
-              {notice && <p className="notice">{notice}</p>}
-              <div className="booking-actions">
-                <button className="confirm" type="submit">Submit Request</button>
-                <button className="cancel" type="button" onClick={() => setBooking(false)}>Close</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {authOpen && (
-        <div className="auth-panel" onClick={closeAuth}>
-          <div className="auth-box" onClick={(e) => e.stopPropagation()}>
-            <h2>{authMode === "signup" ? "Create Account" : authMode === "verify" ? "Verify Email" : "Welcome Back"}</h2>
-            <p className="muted">
-              {authMode === "signup"
-                ? "अपना नाम, email और password डालकर account बनाएं।"
-                : authMode === "verify"
-                ? `हमने ${authEmail} के लिए verification email भेजी है। Email template OTP पर configured होना चाहिए।`
-                : "अपने email और password से login करें।"}
-            </p>
-
-            {authMode === "signup" && (
-              <form onSubmit={handleSignup}>
-                <label>Full Name</label>
-                <input required value={authName} onChange={(e) => setAuthName(e.target.value)} placeholder="Your full name" />
-                <label>Email Address</label>
-                <input required type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="you@example.com" />
-                <label>Password</label>
-                <input required type="password" minLength="6" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="At least 6 characters" />
-                <label>Confirm Password</label>
-                <input required type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Enter password again" />
-                <button className="auth-submit" disabled={authBusy}>{authBusy ? "Please wait..." : "Create Account"}</button>
-              </form>
-            )}
-
-            {authMode === "verify" && (
-              <form onSubmit={handleVerifyOtp}>
-                <label>6-Digit Email OTP</label>
-                <input
-                  required inputMode="numeric" autoComplete="one-time-code" maxLength="6"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  placeholder="Enter 6-digit code"
-                />
-                <button className="auth-submit" disabled={authBusy}>{authBusy ? "Verifying..." : "Verify Email"}</button>
-              </form>
-            )}
-
-            {authMode === "login" && (
-              <form onSubmit={handleLogin}>
-                <label>Email Address</label>
-                <input required type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="you@example.com" />
-                <label>Password</label>
-                <input required type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="Your password" />
-                <button className="auth-submit" disabled={authBusy}>{authBusy ? "Logging in..." : "Login"}</button>
-              </form>
-            )}
-
-            {authNotice && <p className="notice">{authNotice}</p>}
-            {authMode === "login" && <button className="auth-switch" onClick={() => { setAuthMode("signup"); setAuthNotice(""); }}>Create a new account</button>}
-            {authMode === "signup" && <button className="auth-switch" onClick={() => { setAuthMode("login"); setAuthNotice(""); }}>Already have an account? Login</button>}
-            {authMode === "verify" && <button className="auth-switch" onClick={() => { setAuthMode("signup"); setAuthNotice(""); }}>Back to signup</button>}
-            <div><button className="auth-switch" onClick={closeAuth}>Close</button></div>
-          </div>
-        </div>
-      )}
-
-      <footer className="footer">
-        ©️ {new Date().getFullYear()} AstroFriend. All rights reserved.
-        <br />
-        Consultation requests are subject to confirmation by the service team.
-      </footer>
-    </div>
-  );
+      <div className="nav-actions">
+        {user ? <><span className="user-chip">{user.user_metadata?.full_name || user.email}</span><button className="nav-button ghost-button" onClick={logout}>Logout</button></> : <><Link className="nav-button ghost-button" to="/login">Login</Link><Link className="nav-button" to="/signup">Sign Up</Link></>}
+      </div>
+    </header>
+    <main><Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/services" element={<ServicesPage />} />
+      <Route path="/experts" element={<ExpertsPage />} />
+      <Route path="/booking" element={<BookingPage user={user} />} />
+      <Route path="/login" element={<LoginPage user={user} />} />
+      <Route path="/signup" element={<SignupPage />} />
+      <Route path="/verify-email" element={<VerifyPage />} />
+      <Route path="/account" element={<Protected user={user}><AccountPage user={user} /></Protected>} />
+      <Route path="/chat" element={<Protected user={user}><ChatPage user={user} /></Protected>} />
+      <Route path="/admin" element={<Protected user={user}><AdminPage user={user} /></Protected>} />
+      <Route path="*" element={<NotFound />} />
+    </Routes></main>
+    <footer className="footer"><Link className="brand footer-brand" to="/"><span className="brand-icon">✦</span><span>Astro<span>Friend</span></span></Link><p>Connect with astrology experts for guidance and consultations.</p><small>© {new Date().getFullYear()} AstroFriend. All rights reserved.</small></footer>
+  </div>;
 }
+
+function SectionHeading({ eyebrow = "ASTROFRIEND", title, text }) { return <div className="section-heading"><span className="eyebrow">{eyebrow}</span><h1>{title}</h1>{text && <p>{text}</p>}</div>; }
+function HomePage() {
+  return <>
+    <section className="hero"><div className="hero-content"><span className="eyebrow">WELCOME TO ASTROFRIEND</span><h1>Discover Your <span>Cosmic Path</span></h1><p>Connect with astrology experts for Kundli, horoscope, compatibility and personal consultations.</p><div className="hero-actions"><Link className="primary-btn" to="/experts">Explore Experts</Link><Link className="secondary-btn" to="/services">View Services</Link></div><div className="hero-stats"><div><strong>29</strong><small>ASTROLOGY EXPERTS</small></div><div><strong>7</strong><small>CONSULTATION SERVICES</small></div><div><strong>24/7</strong><small>EXPLORE ANYTIME</small></div></div></div><div className="hero-art"><div className="orbit"/><div className="orbit orbit-two"/><div className="cosmic-circle"><span className="sun">☼</span><span className="moon">☾</span><span className="stars">✧　·　✦</span></div><div className="floating-card card-top">✦ Your cosmic journey</div><div className="floating-card card-bottom">Guidance • Clarity • Balance</div></div></section>
+    <div className="trust-strip"><span>✧ Personal Guidance</span><span>☾ Kundli & Horoscope</span><span>✦ Experienced Experts</span><span>♧ Easy Booking</span></div>
+    <section className="section"><SectionHeading title="Guidance for every journey" text="Explore astrology services designed to help you find clarity."/><div className="service-grid">{services.slice(0,3).map((s,i)=><ServiceCard key={s.name} service={s} icon={["☼","☾","✧"][i]}/>)}</div><div className="center-action"><Link className="text-link" to="/services">Explore all services →</Link></div></section>
+    <section className="cta-section"><div className="cta-symbol">✦</div><span className="eyebrow">YOUR NEXT STEP</span><h2>Find the guidance you’re looking for</h2><p>Browse our expert directory and choose a consultation that fits your needs.</p><Link className="primary-btn" to="/experts">Meet Our Experts</Link></section>
+  </>;
+}
+function ServiceCard({ service, icon = "✦" }) { return <article className="service-card"><span className="service-icon">{icon}</span><h3>{service.name}</h3><p>{service.senior === 0 ? "Complimentary daily guidance." : "Choose an expert and view the applicable consultation charge."}</p><strong className="service-price">{service.senior === 0 ? "FREE" : `₹${service.other} – ₹${service.senior}`}</strong><small className="service-caption">{service.senior === 0 ? "No charge" : "Price depends on expert category"}</small></article>; }
+function ServicesPage() { return <section className="page-section"><SectionHeading title="Our Services" text="Choose the service you need. Final price depends on the selected expert."/><div className="service-grid">{services.map((s,i)=><ServiceCard key={s.name} service={s} icon={["☼","☾","✧","◉","◉","✦","♧"][i]}/>)}</div></section>; }
+function ExpertsPage() {
+  const [search,setSearch] = useState(""); const [filter,setFilter] = useState("All");
+  const filtered = useMemo(()=>experts.filter(e=>e.name.toLowerCase().includes(search.toLowerCase())&&(filter==="All"||e.level===filter)),[search,filter]);
+  return <section className="page-section"><SectionHeading title="Meet Our Experts" text="Browse our 29 listed experts and compare consultation rates."/><div className="expert-tools"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search expert name..."/><span className="result-count">{filtered.length} experts</span></div><div className="filter-list">{["All","Senior","Other"].map(f=><button key={f} className={filter===f?"filter active":"filter"} onClick={()=>setFilter(f)}>{f==="All"?"All Experts":f==="Senior"?"Senior Experts":"Other Experts"}</button>)}</div><div className="expert-grid">{filtered.map((expert,i)=><article className="expert-card" key={expert.name}><div className="expert-top"><div className={`avatar ${["purple","pink","blue","gold"][i%4]}`}>{expert.name.charAt(0)}</div><span className="status offline">Listed Expert</span></div><div className="expert-info"><span className="rating">✦ {expert.level} category</span><h3>{expert.name}</h3><p className="expert-category">{expert.level==="Senior"?"Senior Expert":"Expert"}</p><p className="experience">Consultation charges vary by service.</p><div className="expert-bottom"><span className="price">From ₹{Math.min(...services.filter(s=>s.senior>0).map(s=>expert.level==="Senior"?s.senior:s.other))}<small> / service</small></span><Link className="view-btn" to={`/booking?expert=${encodeURIComponent(expert.name)}`}>View & Book</Link></div></div></article>)}</div>{filtered.length===0&&<div className="empty-state">No experts found. Try another name.</div>}</section>;
+}
+function BookingPage({user}) {
+  const [params] = useSearchParams(); const navigate=useNavigate();
+  const [expertName,setExpertName]=useState(params.get("expert")||""); const [serviceName,setServiceName]=useState(services[0].name); const [name,setName]=useState(user?.user_metadata?.full_name||""); const [phone,setPhone]=useState(""); const [message,setMessage]=useState(""); const [notice,setNotice]=useState("");
+  const expert=experts.find(e=>e.name===expertName); const service=services.find(s=>s.name===serviceName)||services[0];
+  const submit=e=>{e.preventDefault();if(!user){navigate("/login?next=/booking");return;}if(!expert){setNotice("Please select an expert.");return;}setNotice("Your booking form is ready, but booking is not connected to the database yet. No request has been saved.");};
+  return <section className="page-section narrow-page"><SectionHeading title="Book a Consultation" text="Select an expert and service to view the consultation price."/><form className="form-card" onSubmit={submit}><label>Choose Expert<select required value={expertName} onChange={e=>setExpertName(e.target.value)}><option value="">Select an expert</option>{experts.map(e=><option key={e.name}>{e.name}</option>)}</select></label><label>Select Service<select value={serviceName} onChange={e=>setServiceName(e.target.value)}>{services.map(s=><option key={s.name}>{s.name}</option>)}</select></label>{expert&&<div className="price-preview">Consultation price <strong>{getPrice(expert,service)===0?"FREE":`₹${getPrice(expert,service)}`}</strong></div>}<label>Your Name<input required value={name} onChange={e=>setName(e.target.value)} placeholder="Your full name"/></label><label>Mobile Number (optional)<input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Mobile number"/></label><label>Message (optional)<textarea rows="4" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Tell us what you need help with"/></label><button className="primary-btn full-btn">{user?"Submit Booking Request":"Login to Continue"}</button>{notice&&<p className="notice-inline">{notice}</p>}<p className="form-footnote">Booking is currently a demo form and is not saved to a database.</p></form></section>;
+}
+function LoginPage({user}) {
+  const navigate=useNavigate(); const [params]=useSearchParams(); const [email,setEmail]=useState("");const [password,setPassword]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
+  if(user)return <Navigate to="/account" replace/>;
+  const submit=async e=>{e.preventDefault();setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;if(!data.user?.email_confirmed_at){await supabase.auth.signOut();throw new Error("Email verify nahi hua hai. Pehle 6-digit OTP verify karein.");}navigate(params.get("next")||"/account");}catch(err){setNotice(err.message||"Login nahi ho paya.");}finally{setBusy(false);}};
+  return <section className="page-section auth-page"><div className="form-card"><SectionHeading title="Welcome Back" text="Login with your verified email address."/><form onSubmit={submit}><label>Email Address<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><label>Password<input required type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your password"/></label><button className="primary-btn full-btn" disabled={busy}>{busy?"Please wait...":"Login"}</button></form>{notice&&<p className="notice-inline">{notice}</p>}<p className="form-footnote">New to AstroFriend? <Link className="text-link" to="/signup">Create an account</Link></p></div></section>;
+}
+function SignupPage() {
+  const navigate=useNavigate();const [name,setName]=useState("");const [email,setEmail]=useState("");const [password,setPassword]=useState("");const [confirm,setConfirm]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
+  const submit=async e=>{e.preventDefault();setNotice("");if(password.length<6)return setNotice("Password कम से कम 6 characters का होना चाहिए।");if(password!==confirm)return setNotice("दोनों password एक जैसे नहीं हैं।");setBusy(true);try{const {data,error}=await supabase.auth.signUp({email:email.trim(),password,options:{data:{full_name:name.trim()}}});if(error)throw error;if(data.session){await supabase.auth.signOut();throw new Error("Supabase में email confirmation बंद है। OTP के बिना account access रोक दिया गया है। Supabase Dashboard → Authentication → Providers → Email में Confirm email चालू करें, फिर दोबारा प्रयास करें।");}sessionStorage.setItem("astrofriend_pending_email",email.trim());navigate("/verify-email");}catch(err){setNotice(err.message||"Signup nahi ho paya.");}finally{setBusy(false);}};
+  return <section className="page-section auth-page"><div className="form-card"><SectionHeading title="Create Account" text="Create your AstroFriend account. Email verification is required."/><form onSubmit={submit}><label>Full Name<input required value={name} onChange={e=>setName(e.target.value)} placeholder="Your full name"/></label><label>Email Address<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><label>Password<input required minLength="6" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 6 characters"/></label><label>Confirm Password<input required type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Enter password again"/></label><button className="primary-btn full-btn" disabled={busy}>{busy?"Creating account...":"Create Account"}</button></form>{notice&&<p className="notice-inline">{notice}</p>}<p className="form-footnote">Already registered? <Link className="text-link" to="/login">Login</Link></p></div></section>;
+}
+function VerifyPage() {
+  const navigate=useNavigate();const [email,setEmail]=useState(sessionStorage.getItem("astrofriend_pending_email")||"");const [otp,setOtp]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
+  const submit=async e=>{e.preventDefault();if(!/^\d{6}$/.test(otp))return setNotice("कृपया 6 अंकों का OTP दर्ज करें।");setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.verifyOtp({email:email.trim(),token:otp,type:"signup"});if(error)throw error;if(!data.user?.email_confirmed_at)throw new Error("Email verification confirm nahi hua. OTP dobara check karein.");sessionStorage.removeItem("astrofriend_pending_email");navigate("/account");}catch(err){setNotice(err.message||"OTP verify nahi hua.");}finally{setBusy(false);}};
+  return <section className="page-section auth-page"><div className="form-card"><SectionHeading title="Verify Your Email" text="Enter the 6-digit code sent to your email address."/><form onSubmit={submit}><label>Email Address<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><label>6-Digit OTP<input required inputMode="numeric" autoComplete="one-time-code" maxLength="6" value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="123456"/></label><button className="primary-btn full-btn" disabled={busy}>{busy?"Verifying...":"Verify Email"}</button></form>{notice&&<p className="notice-inline">{notice}</p>}<p className="form-footnote"><Link className="text-link" to="/signup">Back to signup</Link></p></div></section>;
+}
+function Protected({user,children}) { return user?children:<Navigate to="/login" replace/>; }
+function AccountPage({user}) { return <section className="page-section narrow-page"><SectionHeading title="My Account" text="Your AstroFriend customer account."/><div className="info-card"><div className="account-avatar">{(user.user_metadata?.full_name||user.email||"A").charAt(0).toUpperCase()}</div><h2>{user.user_metadata?.full_name||"AstroFriend Customer"}</h2><p>{user.email}</p><span className="verified-pill">✓ Email verified</span><div className="account-links"><Link className="secondary-btn" to="/booking">Book a Consultation</Link><Link className="secondary-btn" to="/chat">Open Chat</Link></div></div><p className="form-footnote centered">Booking history and saved profile details will appear here after database integration.</p></section>; }
+function ChatPage() { return <section className="page-section narrow-page"><SectionHeading title="Customer Chat" text="Your private AstroFriend conversation area."/><div className="info-card"><div className="chat-icon">☏</div><h2>Chat is coming next</h2><p>The chat tables exist in your Supabase project, but customer messaging and the private admin inbox are not connected yet. No messages can be sent or received from this page today.</p></div></section>; }
+function AdminPage({user}) { const adminEmail=import.meta.env.VITE_ADMIN_EMAIL; if(!adminEmail||user.email?.toLowerCase()!==adminEmail.toLowerCase())return <section className="page-section narrow-page"><div className="info-card"><h2>Admin access restricted</h2><p>This page is available only to the email configured in VITE_ADMIN_EMAIL. Set that variable in Netlify and your local .env to authorize the owner account.</p></div></section>; return <section className="page-section narrow-page"><SectionHeading title="Admin Panel" text="Owner workspace."/><div className="info-card"><h2>Admin panel foundation is ready</h2><p>Owner authentication is restricted to your configured admin email. Booking management and customer chat inbox still need database policies and UI integration.</p></div></section>; }
+function NotFound(){return <section className="page-section narrow-page"><div className="info-card"><h2>Page not found</h2><Link className="text-link" to="/">Return Home →</Link></div></section>;}
+export default function App(){return <BrowserRouter><AppShell/></BrowserRouter>;}
