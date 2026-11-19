@@ -28,3 +28,12 @@ Keep your existing Supabase URL, anon key, `VITE_ADMIN_EMAIL`, and `.env` settin
 - Sign in as customer and open Inbox; old conversations should appear.
 - Add the OpenAI key in Netlify and test AstroFriend AI with an astrology question and an unrelated question.
 - Test wallet/chat using a separate customer account and a small test balance before public launch.
+
+\n## Automated astrology service behavior
+- Basic Kundli, Detailed Kundli, Daily Horoscope, and Kundli Matching submit to the server-side astrology function using the supplied birth details.
+- Chat – 5 Minutes and Chat – 30 Minutes remain human-expert chat requests and do not call the AI report function.
+- The booking form does not ask for a mobile number.
+- Kundli Matching requires the second person's birth date, place, and time.
+- The selected expert remains shown as the selected booking profile. Automated reports must not be represented as personally written by that human expert.
+- This code does not yet enforce package purchase/entitlement before generating reports. Existing booking insert is also dependent on the current af_bookings table schema.
+- Exact planetary chart calculations are not implemented here; the AI must not fabricate chart placements.

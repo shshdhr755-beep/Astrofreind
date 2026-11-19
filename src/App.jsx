@@ -41,7 +41,7 @@ function AppShell() {
       <button className="menu-toggle" onClick={() => setMobileMenu(v => !v)} aria-label="Toggle navigation">☰</button>
       <nav className={mobileMenu ? "nav-links open" : "nav-links"}>
         <NavLink to="/">Home</NavLink><NavLink to="/services">Services</NavLink><NavLink to="/experts">Experts</NavLink>
-        {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/wallet">Wallet</NavLink><NavLink to="/chat">Expert Chat</NavLink><NavLink to="/inbox">Inbox</NavLink><NavLink to="/astro-ai">AI Astrologer</NavLink></>}
+        {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/wallet">Wallet</NavLink><NavLink to="/chat">Expert Chat</NavLink><NavLink to="/inbox">Inbox</NavLink><NavLink to="/astro-ai">Astrology Guidance</NavLink></>}
       </nav>
       <div className="nav-actions">
         {user ? <><span className="user-chip">{user.user_metadata?.full_name || user.email}</span><button className="nav-button ghost-button" onClick={logout}>Logout</button></> : <><Link className="nav-button ghost-button" to="/login">Login</Link><Link className="nav-button" to="/signup">Sign Up</Link></>}
@@ -195,45 +195,76 @@ function BookingPage({user}) {
   const expertName = params.get("expert") || "";
   const [serviceName,setServiceName]=useState(services[0].name);
   const [name,setName]=useState(user?.user_metadata?.full_name||"");
-  const [phone,setPhone]=useState("");
   const [birthDate,setBirthDate]=useState("");
   const [birthPlace,setBirthPlace]=useState("");
   const [birthTime,setBirthTime]=useState("");
+  const [partnerName,setPartnerName]=useState("");
+  const [partnerBirthDate,setPartnerBirthDate]=useState("");
+  const [partnerBirthPlace,setPartnerBirthPlace]=useState("");
+  const [partnerBirthTime,setPartnerBirthTime]=useState("");
   const [message,setMessage]=useState("");
   const [notice,setNotice]=useState("");
+  const [report,setReport]=useState("");
   const [busy,setBusy]=useState(false);
   const expert=experts.find(e=>e.name===expertName);
   const service=services.find(s=>s.name===serviceName)||services[0];
+  const isHumanChat=serviceName.toLowerCase().includes("chat");
+  const isMatching=serviceName.toLowerCase().includes("matching");
   const submit=async e=>{
     e.preventDefault();
     if(!user){navigate("/login?next=/booking");return;}
     if(!expert){setNotice("Expert select nahi hua. Experts page se dobara Book Now karein.");return;}
     if(!birthDate||!birthPlace.trim()||!birthTime){setNotice("Date of Birth, Birth Place aur Birth Time bharna zaroori hai.");return;}
-    setBusy(true);setNotice("");
-    const {error}=await supabase.from("af_bookings").insert({
+    if(isMatching&&(!partnerBirthDate||!partnerBirthPlace.trim()||!partnerBirthTime)){setNotice("Kundli Matching ke liye doosre vyakti ki Date of Birth, Birth Place aur Birth Time bhi bharein.");return;}
+    setBusy(true);setNotice("");setReport("");
+    const bookingPayload={
       customer_id:user.id, expert_name:expertName, service_name:serviceName,
-      customer_name:name.trim(), customer_phone:phone.trim()||null,
+      customer_name:name.trim(), customer_phone:null,
       birth_date:birthDate, birth_place:birthPlace.trim(), birth_time:birthTime,
       message:message.trim()||null, consultation_price:getPrice(expert,service)
-    });
-    if(error)setNotice(error.message);
-    else setNotice("Booking request successfully submit ho gayi. AstroFriend team aapse contact karegi.");
-    setBusy(false);
+    };
+    const {error}=await supabase.from("af_bookings").insert(bookingPayload);
+    if(error){setNotice(error.message);setBusy(false);return;}
+    if(isHumanChat){
+      setNotice("Booking request submit ho gayi. Aapki chat request selected real expert ko bhej di gayi hai.");
+      setBusy(false);return;
+    }
+    try{
+      const response=await fetch("/.netlify/functions/astro-ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        service:serviceName,
+        expertName,
+        birthDetails:{name:name.trim(),date:birthDate,place:birthPlace.trim(),time:birthTime,
+          matchingPartner:isMatching?{name:partnerName.trim(),date:partnerBirthDate,place:partnerBirthPlace.trim(),time:partnerBirthTime}:null},
+        messages:[{role:"user",content:`Please prepare my ${serviceName} report using the birth details provided. Additional question or context: ${message.trim()||"Please provide the requested service report."}`}]
+      })});
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||"Astrology report service abhi available nahi hai.");
+      setReport(data.reply||"Report generate nahi ho payi.");
+      setNotice("Aapki booking submit ho gayi aur consultation report taiyar hai.");
+    }catch(err){
+      setNotice("Booking save ho gayi, lekin report abhi generate nahi hui: "+(err.message||"AI service error."));
+    }finally{setBusy(false);}
   };
-  return <section className="page-section narrow-page"><SectionHeading title="Book a Consultation" text="Confirm your selected expert, choose a service and share your birth details."/><form className="form-card" onSubmit={submit}>
+  return <section className="page-section narrow-page"><SectionHeading title="Book a Consultation" text="Your selected expert is already chosen. Share your birth details for the selected service."/><form className="form-card" onSubmit={submit}>
     <div className="selected-expert"><span>Selected Expert</span><strong>{expertName||"No expert selected"}</strong></div>
-    <label>Select Service<select value={serviceName} onChange={e=>setServiceName(e.target.value)}>{services.map(s=><option key={s.name}>{s.name}</option>)}</select></label>
+    <label>Select Service<select value={serviceName} onChange={e=>{setServiceName(e.target.value);setReport("");setNotice("");}}>{services.map(s=><option key={s.name}>{s.name}</option>)}</select></label>
     {expert&&<div className="price-preview">Consultation price <strong>{getPrice(expert,service)===0?"FREE":`₹${getPrice(expert,service)}`}</strong></div>}
     <label>Your Name<input required value={name} onChange={e=>setName(e.target.value)} placeholder="Your full name"/></label>
-    <label>Mobile Number<input required value={phone} onChange={e=>setPhone(e.target.value)} inputMode="tel" placeholder="10-digit mobile number"/></label>
-    <div className="birth-details-title">Birth Details</div>
+    <div className="birth-details-title">Your Birth Details</div>
     <label>Date of Birth<input required type="date" value={birthDate} onChange={e=>setBirthDate(e.target.value)} max={new Date().toISOString().slice(0,10)}/></label>
     <label>Place of Birth<input required value={birthPlace} onChange={e=>setBirthPlace(e.target.value)} placeholder="City, State, Country"/></label>
     <label>Time of Birth<input required type="time" value={birthTime} onChange={e=>setBirthTime(e.target.value)}/></label>
-    <label>Message (optional)<textarea rows="4" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Tell us what you need help with"/></label>
-    <button className="primary-btn full-btn" disabled={busy||!expert}>{busy?"Submitting...":"Submit Booking Request"}</button>
+    {isMatching&&<><div className="birth-details-title">Second Person's Birth Details</div>
+      <label>Second Person's Name (optional)<input value={partnerName} onChange={e=>setPartnerName(e.target.value)} placeholder="Full name"/></label>
+      <label>Date of Birth<input required type="date" value={partnerBirthDate} onChange={e=>setPartnerBirthDate(e.target.value)} max={new Date().toISOString().slice(0,10)}/></label>
+      <label>Place of Birth<input required value={partnerBirthPlace} onChange={e=>setPartnerBirthPlace(e.target.value)} placeholder="City, State, Country"/></label>
+      <label>Time of Birth<input required type="time" value={partnerBirthTime} onChange={e=>setPartnerBirthTime(e.target.value)}/></label>
+    </>}
+    <label>{isHumanChat?"Message for Expert":"What would you like to know? (optional)"}<textarea rows="4" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Write your question or any additional details"/></label>
+    <button className="primary-btn full-btn" disabled={busy||!expert}>{busy?(isHumanChat?"Submitting...":"Preparing your report..."):(isHumanChat?"Submit Expert Chat Request":"Submit & Get Astrology Report")}</button>
     {notice&&<p className="notice-inline">{notice}</p>}
-    <p className="form-footnote">Your birth details will be saved securely with this booking request and used only to provide the requested astrology service.</p>
+    {report&&<div className="ai-report-result"><h3>Your {serviceName} Report</h3><p>{report}</p></div>}
+    <p className="form-footnote">Your birth details are used to prepare the selected astrology service. Non-chat reports are generated automatically; live chat services remain with the selected human expert.</p>
   </form></section>;
 }
 function LoginPage({user}) {
@@ -255,7 +286,7 @@ function VerifyPage() {
 function Protected({user,children}) { return user?children:<Navigate to="/login" replace/>; }
 
 function AccountPage({user}) {
-  return <section className="page-section narrow-page"><SectionHeading title="My Account" text="Your AstroFriend customer account."/><div className="info-card"><div className="account-avatar">{(user.user_metadata?.full_name||user.email||"A").charAt(0).toUpperCase()}</div><h2>{user.user_metadata?.full_name||"AstroFriend Customer"}</h2><p>{user.email}</p><span className="verified-pill">✓ Email verified</span><div className="account-links"><Link className="secondary-btn" to="/booking">Book a Consultation</Link><Link className="secondary-btn" to="/wallet">My Wallet</Link><Link className="secondary-btn" to="/chat">Expert Chat</Link><Link className="secondary-btn" to="/inbox">Chat Inbox</Link><Link className="secondary-btn" to="/astro-ai">AI Astrologer</Link></div></div></section>;
+  return <section className="page-section narrow-page"><SectionHeading title="My Account" text="Your AstroFriend customer account."/><div className="info-card"><div className="account-avatar">{(user.user_metadata?.full_name||user.email||"A").charAt(0).toUpperCase()}</div><h2>{user.user_metadata?.full_name||"AstroFriend Customer"}</h2><p>{user.email}</p><span className="verified-pill">✓ Email verified</span><div className="account-links"><Link className="secondary-btn" to="/booking">Book a Consultation</Link><Link className="secondary-btn" to="/wallet">My Wallet</Link><Link className="secondary-btn" to="/chat">Expert Chat</Link><Link className="secondary-btn" to="/inbox">Chat Inbox</Link><Link className="secondary-btn" to="/astro-ai">Astrology Guidance</Link></div></div></section>;
 }
 function WalletPage({user}) {
   const [wallet,setWallet]=useState(null),[transactions,setTransactions]=useState([]),[loading,setLoading]=useState(true),[amount,setAmount]=useState(""),[notice,setNotice]=useState("");
@@ -308,7 +339,7 @@ function InboxPage({user}) {
 }
 function AstroAIPage() {
   const [question,setQuestion]=useState("");
-  const [messages,setMessages]=useState([{role:"assistant",content:"Namaste! Main AstroFriend AI hoon. Main Kundli, astrology, numerology, rashifal, grah-gochar aur traditional future guidance se jude sawalon mein madad kar sakta hoon. Aap apna sawal poochhein."}]);
+  const [messages,setMessages]=useState([{role:"assistant",content:"Namaste! AstroFriend Consultation mein aapka swagat hai. Main Kundli, astrology, numerology, rashifal, grah-gochar aur traditional future guidance se jude sawalon mein madad kar sakta hoon. Aap apna sawal poochhein."}]);
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState("");
   const send=async e=>{
@@ -324,9 +355,9 @@ function AstroAIPage() {
     }catch(err){setNotice(err.message||"AI se response nahi mila.");}
     finally{setBusy(false);}
   };
-  return <section className="page-section narrow-page"><SectionHeading title="AstroFriend AI Astrologer" text="Kundli, numerology, horoscope aur bhavishya se jude sawalon ke liye AI guidance."/>
-    <div className="ai-chat-panel"><div className="ai-chat-head"><span className="ai-orb">✦</span><div><strong>AstroFriend AI</strong><small>Astrology & Numerology Assistant</small></div><span className="ai-online">Online</span></div>
-    <div className="ai-chat-messages">{messages.map((m,i)=><div key={i} className={`ai-message ${m.role==="user"?"user":"assistant"}`}><small>{m.role==="user"?"You":"AstroFriend AI"}</small><p>{m.content}</p></div>)}{busy&&<div className="ai-message assistant"><small>AstroFriend AI</small><p>Soch raha hoon...</p></div>}</div>
+  return <section className="page-section narrow-page"><SectionHeading title="AstroFriend Consultation" text="Kundli, numerology, horoscope aur traditional astrology guidance."/>
+    <div className="ai-chat-panel"><div className="ai-chat-head"><span className="ai-orb">✦</span><div><strong>AstroFriend Consultation</strong><small>Astrology Consultation</small></div><span className="ai-online">Online</span></div>
+    <div className="ai-chat-messages">{messages.map((m,i)=><div key={i} className={`ai-message ${m.role==="user"?"user":"assistant"}`}><small>{m.role==="user"?"You":"AstroFriend Consultation"}</small><p>{m.content}</p></div>)}{busy&&<div className="ai-message assistant"><small>AstroFriend Consultation</small><p>Soch raha hoon...</p></div>}</div>
     <form className="ai-compose" onSubmit={send}><textarea value={question} onChange={e=>setQuestion(e.target.value)} placeholder="Apna Kundli, rashifal ya numerology ka sawal likhein..." rows="2" maxLength="3000"/><button className="primary-btn" disabled={busy||!question.trim()}>{busy?"Please wait...":"Send"}</button></form>
     {notice&&<p className="notice-inline">{notice}</p>}
     <p className="form-footnote">AI guidance paramparik astrology/numerology par aadharit hai; ise guaranteed prediction ya professional advice na samjhein.</p></div>

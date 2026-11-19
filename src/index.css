@@ -49,3 +49,5 @@
 .ai-compose textarea{flex:1;min-width:0;resize:vertical;background:#0f0e1c;color:white;border:1px solid #ffffff25;border-radius:7px;padding:12px;font:inherit}
 .ai-compose .primary-btn{align-self:flex-end}
 @media(max-width:650px){.inbox-layout{grid-template-columns:1fr}.inbox-list{border-right:0;border-bottom:1px solid #ffffff15;max-height:230px}.ai-compose{flex-direction:column}.ai-compose .primary-btn{width:100%}.selected-expert{align-items:flex-start;flex-direction:column}.selected-expert strong{text-align:left}}
+
+.ai-report-result{margin-top:18px;padding:18px;border:1px solid rgba(218,177,103,.45);border-radius:12px;background:rgba(218,177,103,.07);white-space:pre-wrap;line-height:1.7}.ai-report-result h3{margin:0 0 10px;color:#e8c27f}.ai-report-result p{margin:0;color:inherit}
