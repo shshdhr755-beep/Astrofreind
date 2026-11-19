@@ -13,7 +13,7 @@ export default async (request) => {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!supabaseUrl || !supabaseAnonKey || !token) return new Response(JSON.stringify({ error: "Please login and start a paid AI consultation." }), { status: 401, headers });
+  if (!supabaseUrl || !supabaseAnonKey || !token) return new Response(JSON.stringify({ error: "Go to AstroFriend Consultation" }), { status: 401, headers });
   try {
     const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` } });
     if (!authResponse.ok) return new Response(JSON.stringify({ error: "Login session invalid. Please login again." }), { status: 401, headers });

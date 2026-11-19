@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "./supabase";
 import { experts, services, getPrice } from "./data/catalog";
@@ -7,6 +7,7 @@ function AppShell() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [replyNotice, setReplyNotice] = useState(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -26,6 +27,27 @@ function AppShell() {
     return () => { alive = false; listener?.subscription?.unsubscribe(); };
   }, []);
 
+  const lastAdminMessage = useRef(null);
+  useEffect(() => {
+    if (!user) { lastAdminMessage.current = null; return; }
+    let alive = true;
+    const checkReplies = async () => {
+      const { data: chats } = await supabase.from("af_chat_sessions").select("id").eq("customer_id", user.id);
+      const ids = (chats || []).map(x => x.id);
+      if (!ids.length || !alive) return;
+      const { data: latest } = await supabase.from("af_chat_messages").select("id,message,created_at,session_id").eq("sender", "admin").in("session_id", ids).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (!alive) return;
+      if (!latest) { if (lastAdminMessage.current === null) lastAdminMessage.current = "__none__"; return; }
+      if (lastAdminMessage.current && latest.id !== lastAdminMessage.current && lastAdminMessage.current !== "__none__") {
+        setReplyNotice({ id: latest.id, sessionId: latest.session_id, message: latest.message });
+        if ("Notification" in window && Notification.permission === "granted") new Notification("AstroFriend – Expert Reply", { body: latest.message || "Aapke expert ka naya reply aaya hai.", tag: latest.id });
+      }
+      lastAdminMessage.current = latest.id;
+    };
+    checkReplies();
+    const timer = setInterval(checkReplies, 5000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [user?.id]);
   useEffect(() => { setMobileMenu(false); window.scrollTo(0, 0); }, [location.pathname]);
 
   const logout = async () => {
@@ -40,17 +62,18 @@ function AppShell() {
       <Link className="brand" to="/"><span className="brand-icon">✦</span><span>Astro<span>Friend</span></span></Link>
       <button className="menu-toggle" onClick={() => setMobileMenu(v => !v)} aria-label="Toggle navigation">☰</button>
       <nav className={mobileMenu ? "nav-links open" : "nav-links"}>
-        <NavLink to="/">Home</NavLink><NavLink to="/services">Services</NavLink><NavLink to="/experts">Experts</NavLink>
+        <NavLink to="/">Home</NavLink><NavLink to="/services">Services</NavLink>
         {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/wallet">Wallet</NavLink><NavLink to="/inbox">Inbox</NavLink><NavLink to="/astro-ai">Astrology Guidance</NavLink></>}
       </nav>
       <div className="nav-actions">
         {user ? <span className="user-chip">{user.user_metadata?.full_name || user.email}</span> : <><Link className="nav-button ghost-button" to="/login">Login</Link><Link className="nav-button" to="/signup">Sign Up</Link></>}
       </div>
     </header>
+    {replyNotice && <div className="notice-inline reply-toast"><span>Expert ka naya reply: {replyNotice.message}</span> <Link to={`/inbox?session=${replyNotice.sessionId}`}>Open chat</Link> <button type="button" onClick={()=>setReplyNotice(null)} aria-label="Dismiss">×</button></div>}
     <main><Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/services" element={<ServicesPage />} />
-      <Route path="/experts" element={<Protected user={user}><ExpertsPage /></Protected>} />
+      <Route path="/experts" element={<Navigate to="/" replace />} />
       <Route path="/booking" element={<BookingPage user={user} />} />
       <Route path="/login" element={<LoginPage user={user} />} />
       <Route path="/signup" element={<SignupPage />} />
@@ -71,16 +94,14 @@ function AppShell() {
 function SectionHeading({ eyebrow = "ASTROFRIEND", title, text }) { return <div className="section-heading"><span className="eyebrow">{eyebrow}</span><h1>{title}</h1>{text && <p>{text}</p>}</div>; }
 function HomePage() {
   return <>
-    <section className="hero"><div className="hero-content"><span className="eyebrow">WELCOME TO ASTROFRIEND</span><h1>Discover Your <span>Cosmic Path</span></h1><p>Connect with astrology experts for Kundli, horoscope, compatibility and personal consultations.</p><div className="hero-actions"><Link className="primary-btn" to="/experts">Explore Experts</Link><Link className="secondary-btn" to="/services">View Services</Link></div><div className="hero-stats"><div><strong>29</strong><small>ASTROLOGY EXPERTS</small></div><div><strong>7</strong><small>CONSULTATION SERVICES</small></div><div><strong>24/7</strong><small>EXPLORE ANYTIME</small></div></div></div><div className="hero-art"><div className="orbit"/><div className="orbit orbit-two"/><div className="cosmic-circle"><span className="sun">☼</span><span className="moon">☾</span><span className="stars">✧　·　✦</span></div><div className="floating-card card-top">✦ Your cosmic journey</div><div className="floating-card card-bottom">Guidance • Clarity • Balance</div></div></section>
-    <div className="trust-strip"><span>✧ Personal Guidance</span><span>☾ Kundli & Horoscope</span><span>✦ Experienced Experts</span><span>♧ Easy Booking</span></div>
-    <section className="section"><SectionHeading title="Guidance for every journey" text="Explore astrology services designed to help you find clarity."/><div className="service-grid">{services.slice(0,3).map((s,i)=><ServiceCard key={s.name} service={s} icon={["☼","☾","✧"][i]}/>)}</div><div className="center-action"><Link className="text-link" to="/services">Explore all services →</Link></div></section>
-    <section className="cta-section"><div className="cta-symbol">✦</div><span className="eyebrow">YOUR NEXT STEP</span><h2>Find the guidance you’re looking for</h2><p>Browse our expert directory and choose a consultation that fits your needs.</p><Link className="primary-btn" to="/experts">Meet Our Experts</Link></section>
+    <ExpertsPage embedded />
+    <section className="section"><SectionHeading title="Our Services" text="Choose the service you need. Final price depends on the selected expert."/><div className="service-grid">{services.map((s,i)=><ServiceCard key={s.name} service={s} icon={["☼","☾","✧","◉","◉","✦","♧"][i]}/>)}</div></section>
   </>;
 }
 function ServiceCard({ service, icon = "✦" }) { return <article className="service-card"><span className="service-icon">{icon}</span><h3>{service.name}</h3><p>{service.senior === 0 ? "Complimentary daily guidance." : "Choose an expert and view the applicable consultation charge."}</p><strong className="service-price">{service.senior === 0 ? "FREE" : `₹${service.other} – ₹${service.senior}`}</strong><small className="service-caption">{service.senior === 0 ? "No charge" : "Price depends on expert category"}</small></article>; }
 function ServicesPage() { return <section className="page-section"><SectionHeading title="Our Services" text="Choose the service you need. Final price depends on the selected expert."/><div className="service-grid">{services.map((s,i)=><ServiceCard key={s.name} service={s} icon={["☼","☾","✧","◉","◉","✦","♧"][i]}/>)}</div></section>; }
 
-function ExpertsPage() {
+function ExpertsPage({embedded=false} = {}) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
 
@@ -95,7 +116,7 @@ function ExpertsPage() {
   );
 
   return (
-    <section className="page-section">
+    <section className={embedded ? "page-section home-experts" : "page-section"}>
       <SectionHeading
         title="Meet Our Experts"
         text="Browse our 29 listed experts and compare consultation rates."
@@ -213,7 +234,7 @@ function BookingPage({user}) {
   const isMatching=serviceName.toLowerCase().includes("matching");
   const submit=async e=>{
     e.preventDefault();
-    if(!user){navigate("/login?next=/experts");return;}
+    if(!user){navigate("/login?next=/");return;}
     if(!expert){setNotice("Expert select nahi hua. Experts page se dobara Book Now karein.");return;}
     if(!birthDate||!birthPlace.trim()||!birthTime){setNotice("Date of Birth, Birth Place aur Birth Time bharna zaroori hai.");return;}
     if(isMatching&&(!partnerBirthDate||!partnerBirthPlace.trim()||!partnerBirthTime)){setNotice("Kundli Matching ke liye doosre vyakti ki Date of Birth, Birth Place aur Birth Time bhi bharein.");return;}
@@ -230,8 +251,8 @@ function BookingPage({user}) {
       if(chatError){setNotice(chatError.message||"Error funds: wallet balance kam hai.");setBusy(false);return;}
       const {error:saveError}=await supabase.rpc("af_save_chat_booking",{...bookingPayload,p_session_id:sessionId});
       if(saveError){await supabase.rpc("af_end_chat",{p_session_id:sessionId});setNotice(saveError.message||"Booking save nahi hui.");setBusy(false);return;}
-      setNotice("Book request submit ho gayi. Expert ke accept karne par chat shuru hogi; paise chat ke dauran har minute katenge.");
-      setBusy(false);return;
+      setNotice("Information successfully send ho gayi. Aapki chat inbox khol rahe hain...");
+      setBusy(false);navigate(`/inbox?session=${sessionId}`);return;
     }
     // Fixed-price reports are charged only when the report is successfully generated.
     if(price>0){
@@ -271,16 +292,16 @@ function BookingPage({user}) {
       <label>Time of Birth<input required type="time" value={partnerBirthTime} onChange={e=>setPartnerBirthTime(e.target.value)}/></label>
     </>}
     <label>{isHumanChat?"Message for Expert":"What would you like to know? (optional)"}<textarea rows="4" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Write your question or any additional details"/></label>
-    <button className="primary-btn full-btn" disabled={busy||!expert}>{busy?(isHumanChat?"Submitting...":"Preparing your report..."):(isHumanChat?"Submit Expert Chat Request":"Book Request")}</button>
+    <button className="primary-btn full-btn" disabled={busy||!expert}>{busy?(isHumanChat?"Submitting...":"Preparing your report..."):(isHumanChat?"Send Information":"Send Information")}</button>
     {notice&&<p className="notice-inline">{notice}</p>}
     {report&&<div className="ai-report-result"><h3>Your {serviceName} Report</h3><p>{report}</p></div>}
-    <p className="form-footnote">Your booking is accepted only when your wallet has sufficient funds. Human chat charges start only after the expert accepts and the chat begins; fixed-price reports are charged when the report is successfully generated.</p>
+    <p className="form-footnote">Your request is confirmed when your wallet has enough balance. Chat charges start only after the expert accepts and the chat begins.</p>
   </form></section>;
 }
 function LoginPage({user}) {
   const navigate=useNavigate(); const [params]=useSearchParams(); const [email,setEmail]=useState("");const [password,setPassword]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
-  if(user)return <Navigate to="/experts" replace/>;
-  const submit=async e=>{e.preventDefault();setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;if(!data.user?.email_confirmed_at){await supabase.auth.signOut();throw new Error("Email verify nahi hua hai. Pehle 6-digit OTP verify karein.");}navigate(params.get("next")||"/experts");}catch(err){setNotice(err.message||"Login nahi ho paya.");}finally{setBusy(false);}};
+  if(user)return <Navigate to="/" replace/>;
+  const submit=async e=>{e.preventDefault();setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;if(!data.user?.email_confirmed_at){await supabase.auth.signOut();throw new Error("Email verify nahi hua hai. Pehle 6-digit OTP verify karein.");}navigate(params.get("next")||"/");}catch(err){setNotice(err.message||"Login nahi ho paya.");}finally{setBusy(false);}};
   const sendReset=async()=>{if(!email.trim()){setNotice("Pehle Email Address box mein apna registered email likhein.");return;}setBusy(true);setNotice("");try{const {error}=await supabase.auth.resetPasswordForEmail(email.trim(),{redirectTo:`${window.location.origin}/reset-password`});if(error)throw error;setNotice("Password reset link aapke email par bhej diya gaya hai. Inbox aur Spam folder check karein.");}catch(err){setNotice(err.message||"Reset link nahi bheja ja saka.");}finally{setBusy(false);}};
   return <section className="page-section auth-page"><div className="form-card"><SectionHeading title="Welcome Back" text="Login with your verified email address."/><form onSubmit={submit}><label>Email Address<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><label>Password<input required type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your password"/></label><button className="primary-btn full-btn" disabled={busy}>{busy?"Please wait...":"Login"}</button></form><p className="form-footnote"><button type="button" className="text-link" onClick={sendReset} disabled={busy}>Forgot Password?</button></p>{notice&&<p className="notice-inline">{notice}</p>}<p className="form-footnote">New to AstroFriend? <Link className="text-link" to="/signup">Create an account</Link></p></div></section>;
 }
@@ -295,14 +316,14 @@ function SignupPage() {
   return <section className="page-section auth-page"><div className="form-card"><SectionHeading title="Create Account" text="Create your AstroFriend account. Email verification is required."/><form onSubmit={submit}><label>Full Name<input required value={name} onChange={e=>setName(e.target.value)} placeholder="Your full name"/></label><label>Email Address<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><label>Password<input required minLength="6" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 6 characters"/></label><label>Confirm Password<input required type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Enter password again"/></label><button className="primary-btn full-btn" disabled={busy}>{busy?"Creating account...":"Create Account"}</button></form>{notice&&<p className="notice-inline">{notice}</p>}<p className="form-footnote">Already registered? <Link className="text-link" to="/login">Login</Link></p></div></section>;
 }
 function VerifyPage() {
-  const navigate=useNavigate();const [email,setEmail]=useState(sessionStorage.getItem("astrofriend_pending_email")||"");const [otp,setOtp]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
-  const submit=async e=>{e.preventDefault();if(!/^\d{6}$/.test(otp))return setNotice("कृपया 6 अंकों का OTP दर्ज करें।");setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.verifyOtp({email:email.trim(),token:otp,type:"signup"});if(error)throw error;if(!data.user?.email_confirmed_at)throw new Error("Email verification confirm nahi hua. OTP dobara check karein.");sessionStorage.removeItem("astrofriend_pending_email");navigate(params.get("next")||"/experts");}catch(err){setNotice(err.message||"OTP verify nahi hua.");}finally{setBusy(false);}};
+  const navigate=useNavigate();const [params]=useSearchParams();const [email,setEmail]=useState(sessionStorage.getItem("astrofriend_pending_email")||"");const [otp,setOtp]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
+  const submit=async e=>{e.preventDefault();if(!/^\d{6}$/.test(otp))return setNotice("कृपया 6 अंकों का OTP दर्ज करें।");setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.verifyOtp({email:email.trim(),token:otp,type:"signup"});if(error)throw error;if(!data.user?.email_confirmed_at)throw new Error("Email verification confirm nahi hua. OTP dobara check karein.");sessionStorage.removeItem("astrofriend_pending_email");navigate(params.get("next")||"/");}catch(err){setNotice(err.message||"OTP verify nahi hua.");}finally{setBusy(false);}};
   return <section className="page-section auth-page"><div className="form-card"><SectionHeading title="Verify Your Email" text="Enter the 6-digit code sent to your email address."/><form onSubmit={submit}><label>Email Address<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><label>6-Digit OTP<input required inputMode="numeric" autoComplete="one-time-code" maxLength="6" value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="123456"/></label><button className="primary-btn full-btn" disabled={busy}>{busy?"Verifying...":"Verify Email"}</button></form>{notice&&<p className="notice-inline">{notice}</p>}<p className="form-footnote"><Link className="text-link" to="/signup">Back to signup</Link></p></div></section>;
 }
 function Protected({user,children}) { return user?children:<Navigate to="/login" replace/>; }
 
 function AccountPage({user,onLogout}) {
-  return <section className="page-section narrow-page"><SectionHeading title="My Account" text="Your AstroFriend customer account."/><div className="info-card"><div className="account-avatar">{(user.user_metadata?.full_name||user.email||"A").charAt(0).toUpperCase()}</div><h2>{user.user_metadata?.full_name||"AstroFriend Customer"}</h2><p>{user.email}</p><span className="verified-pill">✓ Email verified</span><div className="account-links"><Link className="secondary-btn" to="/experts">Meet Our Experts</Link><Link className="secondary-btn" to="/wallet">My Wallet</Link><Link className="secondary-btn" to="/inbox">Chat Inbox</Link><Link className="secondary-btn" to="/astro-ai">Astrology Guidance</Link><button type="button" className="secondary-btn" onClick={onLogout}>Logout</button></div></div></section>;
+  return <section className="page-section narrow-page"><SectionHeading title="My Account" text="Your AstroFriend customer account."/><div className="info-card"><div className="account-avatar">{(user.user_metadata?.full_name||user.email||"A").charAt(0).toUpperCase()}</div><h2>{user.user_metadata?.full_name||"AstroFriend Customer"}</h2><p>{user.email}</p><span className="verified-pill">✓ Email verified</span><div className="account-links"><Link className="secondary-btn" to="/">Meet Our Experts</Link><Link className="secondary-btn" to="/wallet">My Wallet</Link><Link className="secondary-btn" to="/inbox">Chat Inbox</Link><Link className="secondary-btn" to="/astro-ai">Astrology Guidance</Link><button type="button" className="secondary-btn" onClick={onLogout}>Logout</button></div></div></section>;
 }
 function WalletPage({user}) {
   const [wallet,setWallet]=useState(null),[transactions,setTransactions]=useState([]),[loading,setLoading]=useState(true),[amount,setAmount]=useState(""),[coupon,setCoupon]=useState(""),[couponBusy,setCouponBusy]=useState(false),[notice,setNotice]=useState("");
@@ -333,32 +354,28 @@ function ChatPage({user}) {
   </section>;
 }
 function InboxPage({user}) {
-  const [sessions,setSessions]=useState([]);
-  const [selected,setSelected]=useState(null);
-  const [messages,setMessages]=useState([]);
-  const [notice,setNotice]=useState("");
+  const [params,setParams]=useSearchParams();
+  const [sessions,setSessions]=useState([]),[selected,setSelected]=useState(null),[messages,setMessages]=useState([]),[notice,setNotice]=useState(""),[seconds,setSeconds]=useState(0),[sending,setSending]=useState(false);
+  const selectedId=params.get("session");
   const load=async()=>{
     const {data,error}=await supabase.from("af_chat_sessions").select("*").eq("customer_id",user.id).order("created_at",{ascending:false});
     if(error){setNotice(error.message);return;}
-    setSessions(data||[]);
-    if(selected){
-      const current=(data||[]).find(s=>s.id===selected.id);
-      if(current)setSelected(current);
-      const {data:m,error:me}=await supabase.from("af_chat_messages").select("*").eq("session_id",selected.id).order("created_at");
-      if(me)setNotice(me.message);else setMessages(m||[]);
-    }
+    const rows=data||[];setSessions(rows);
+    const target=(selectedId&&rows.find(x=>x.id===selectedId))||(selected&&rows.find(x=>x.id===selected.id))||rows[0]||null;
+    if(target){setSelected(target);const {data:m,error:me}=await supabase.from("af_chat_messages").select("*").eq("session_id",target.id).order("created_at");if(!me)setMessages(m||[]);}
   };
-  useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id);},[user.id,selected?.id]);
-  const endSelected=async()=>{
-    if(!selected || !["pending","active"].includes(selected.status))return;
-    const {error}=await supabase.rpc("af_end_chat",{p_session_id:selected.id});
-    if(error)setNotice(error.message);else setNotice("Chat end kar di gayi hai. Ab aage ka charge nahi katega.");
-    await load();
-  };
-  return <section className="page-section"><SectionHeading title="My Chat Inbox" text="Your expert chat requests and previous conversations."/>
-    <div className="inbox-layout"><div className="inbox-list">{sessions.length===0?<p className="muted-note">Abhi koi chat nahi hai. Expert Chat page se request bhejein.</p>:sessions.map(s=><button key={s.id} className={`inbox-item ${selected?.id===s.id?"selected":""}`} onClick={()=>setSelected(s)}><strong>{s.expert_name}</strong><span>{s.status==="pending"?"Waiting":s.status==="active"?"Live chat":"Completed"}</span><small>{new Date(s.created_at).toLocaleString("en-IN")}</small><small>₹{s.rate_per_minute}/minute</small></button>)}</div>
-    <div className="inbox-conversation">{selected?<><div className="chat-session-head"><div><strong>{selected.expert_name}</strong><small>{selected.status} · ₹{selected.rate_per_minute}/minute</small></div></div><div className="chat-messages">{messages.length===0?<p className="muted-note">No messages yet.</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="customer"?"mine":"theirs"}`}><small>{m.sender==="customer"?"You":"Expert"}</small><p>{m.message}</p></div>)}</div>{["pending","active"].includes(selected.status)&&<div className="chat-actions"><span>{selected.status==="active"?"Chat active":"Request pending"}</span><button className="secondary-btn" type="button" onClick={endSelected}>End Chat</button></div>}</>:<p className="muted-note">Conversation dekhne ke liye left side se chat select karein.</p>}</div></div>
-    {notice&&<p className="notice-inline">{notice}</p>}
+  useEffect(()=>{load();const id=setInterval(load,2500);return()=>clearInterval(id);},[user.id,selectedId,selected?.id]);
+  useEffect(()=>{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission().catch(()=>{});},[]);
+  useEffect(()=>{if(!selected||selected.status!=="active"||!selected.started_at)return;const tick=()=>setSeconds(Math.max(0,Math.floor((Date.now()-new Date(selected.started_at).getTime())/1000)));tick();const id=setInterval(tick,1000);return()=>clearInterval(id);},[selected?.id,selected?.status,selected?.started_at]);
+  useEffect(()=>{if(!selected||selected.status!=="active")return;const id=setInterval(async()=>{const {data,error}=await supabase.rpc("af_charge_chat_minute",{p_session_id:selected.id});if(error)setNotice(error.message);else if(data?.ended){setNotice("Wallet balance khatam hone par chat end ho gayi.");await load();}},5000);return()=>clearInterval(id);},[selected?.id,selected?.status]);
+
+  const endSelected=async()=>{if(!selected||!["pending","active"].includes(selected.status))return;const {error}=await supabase.rpc("af_end_chat",{p_session_id:selected.id});if(error)setNotice(error.message);else setNotice("Chat end kar di gayi hai. Aage ka charge nahi katega.");await load();};
+  const send=async e=>{e.preventDefault();const input=e.currentTarget.querySelector('input[type="text"]');const text=input?.value.trim();if(!text||!selected||selected.status!=="active")return;setSending(true);const {error}=await supabase.from("af_chat_messages").insert({session_id:selected.id,sender:"customer",message:text});if(error)setNotice(error.message);else{input.value="";await load();}setSending(false);};
+  const upload=async e=>{const file=e.target.files?.[0];e.target.value="";if(!file||!selected||selected.status!=="active")return;if(file.size>25*1024*1024){setNotice("File 25 MB se chhoti honi chahiye.");return;}setSending(true);const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");const path=`${selected.id}/${user.id}/${Date.now()}-${safe}`;const {error:upErr}=await supabase.storage.from("af-chat-attachments").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});if(upErr){setNotice(`File upload nahi hui: ${upErr.message}. SQL migration run karna zaroori hai.`);setSending(false);return;}const {error}=await supabase.from("af_chat_messages").insert({session_id:selected.id,sender:"customer",message:`Attachment: ${file.name}`,attachment_path:path,attachment_name:file.name,attachment_mime:file.type});if(error)setNotice(error.message);else await load();setSending(false);};
+  const openAttachment=async path=>{const {data,error}=await supabase.storage.from("af-chat-attachments").createSignedUrl(path,300);if(error)setNotice(error.message);else window.open(data.signedUrl,"_blank","noopener,noreferrer");};
+  return <section className="page-section"><SectionHeading title="My Chat Inbox" text="Your expert requests and conversations."/>
+    <div className="inbox-layout"><div className="inbox-list">{sessions.length===0?<p className="muted-note">Abhi koi chat request nahi hai. Home page se expert select karein.</p>:sessions.map(s=><button key={s.id} className={`inbox-item ${selected?.id===s.id?"selected":""}`} onClick={()=>{setSelected(s);setParams({session:s.id});}}><strong>{s.expert_name}</strong><span>{s.status==="pending"?"Waiting for expert":s.status==="active"?"Live chat":"Completed"}</span><small>{new Date(s.created_at).toLocaleString("en-IN")}</small><small>₹{s.rate_per_minute}/minute</small></button>)}</div>
+    <div className="inbox-conversation">{selected?<><div className="chat-session-head"><div><strong>{selected.expert_name}</strong><small>{selected.status==="pending"?"Request sent · Waiting for expert":`${selected.status} · ₹${selected.rate_per_minute}/minute`}</small></div>{selected.status==="active"&&<div className="chat-clock">{String(Math.floor(seconds/60)).padStart(2,"0")}:{String(seconds%60).padStart(2,"0")}</div>}</div><div className="chat-messages">{messages.length===0?<p className="muted-note">{selected.status==="pending"?"Your information has been sent. Chat will open when the expert accepts.":"No messages yet."}</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="customer"?"mine":"theirs"}`}><small>{m.sender==="customer"?"You":"Expert"}</small><p>{m.attachment_path?<button className="attachment-link" type="button" onClick={()=>openAttachment(m.attachment_path)}>📎 {m.attachment_name||m.message} · Open file</button>:m.message}</p><small>{new Date(m.created_at).toLocaleString("en-IN")}</small></div>)}</div>{selected.status==="active"&&<form className="chat-compose" onSubmit={send}><input type="text" placeholder="Type your message..." maxLength="2000"/><label className="file-attach">Attach<input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xls,.xlsx" onChange={upload} hidden/></label><button className="primary-btn" disabled={sending}>Send</button></form>}<div className="chat-actions"><span>{selected.status==="active"?`Timer running · ₹${selected.rate_per_minute}/minute`:selected.status==="pending"?"Waiting for expert acceptance":"Chat completed"}</span>{["pending","active"].includes(selected.status)&&<button className="secondary-btn" type="button" onClick={endSelected}>End Chat</button>}</div></>:<p className="muted-note">Chat open karne ke liye left side se request select karein.</p>}</div></div>{notice&&<p className="notice-inline">{notice}</p>}
   </section>;
 }
 function AstroAIPage({user}) {
@@ -424,7 +441,7 @@ function AstroAIPage({user}) {
 
 function AdminPage({user}) {
   const adminEmail=import.meta.env.VITE_ADMIN_EMAIL;
-  const [sessions,setSessions]=useState([]),[selected,setSelected]=useState(null),[messages,setMessages]=useState([]),[reply,setReply]=useState(""),[notice,setNotice]=useState(""),[filter,setFilter]=useState("pending"),[busy,setBusy]=useState(false),[couponCode,setCouponCode]=useState(""),[couponAmount,setCouponAmount]=useState(""),[couponUses,setCouponUses]=useState("1"),[couponExpiry,setCouponExpiry]=useState("");
+  const [sessions,setSessions]=useState([]),[selected,setSelected]=useState(null),[messages,setMessages]=useState([]),[reply,setReply]=useState(""),[notice,setNotice]=useState(""),[filter,setFilter]=useState("pending"),[busy,setBusy]=useState(false),[couponCode,setCouponCode]=useState(""),[couponAmount,setCouponAmount]=useState(""),[couponUses,setCouponUses]=useState("1"),[couponExpiry,setCouponExpiry]=useState(""),[chatSeconds,setChatSeconds]=useState(0);
   const allowed=!!adminEmail&&user.email?.toLowerCase()===adminEmail.toLowerCase();
   const load=async()=>{
     if(!allowed)return;
@@ -440,10 +457,13 @@ function AdminPage({user}) {
   };
   useEffect(()=>{if(allowed){load();const id=setInterval(load,3000);return()=>clearInterval(id);}},[allowed,selected?.id]);
   useEffect(()=>{if(!selected)return;const id=setInterval(async()=>{const {data,error}=await supabase.from("af_chat_messages").select("*").eq("session_id",selected.id).order("created_at",{ascending:true});if(!error)setMessages(data||[]);},2500);return()=>clearInterval(id);},[selected?.id]);
+  useEffect(()=>{if(!selected||selected.status!=="active"||!selected.started_at)return;const tick=()=>setChatSeconds(Math.max(0,Math.floor((Date.now()-new Date(selected.started_at).getTime())/1000)));tick();const id=setInterval(tick,1000);return()=>clearInterval(id);},[selected?.id,selected?.status,selected?.started_at]);
   if(!allowed)return <section className="page-section narrow-page"><div className="info-card"><h2>Admin access restricted</h2><p>Admin login ke liye Netlify environment variable VITE_ADMIN_EMAIL mein apna login email set karein aur Supabase mein af_admins table mein isi account ko add karein.</p></div></section>;
   const choose=async s=>{setSelected(s);setMessages([]);const {data,error}=await supabase.from("af_chat_messages").select("*").eq("session_id",s.id).order("created_at",{ascending:true});if(error)setNotice(error.message);else setMessages(data||[]);};
   const accept=async s=>{setBusy(true);const {error}=await supabase.rpc("af_start_chat",{p_session_id:s.id});if(error)setNotice(error.message);else{setNotice("Chat accept ho gayi. Ab customer ko reply kar sakte hain.");await load();}setBusy(false);};
   const send=async e=>{e.preventDefault();if(!reply.trim()||!selected||selected.status!=="active")return;setBusy(true);const {error}=await supabase.from("af_chat_messages").insert({session_id:selected.id,sender:"admin",message:reply.trim()});if(error)setNotice(error.message);else{setReply("");const {data}=await supabase.from("af_chat_messages").select("*").eq("session_id",selected.id).order("created_at",{ascending:true});setMessages(data||[]);}setBusy(false);};
+  const adminUpload=async e=>{const file=e.target.files?.[0];e.target.value="";if(!file||!selected||selected.status!=="active")return;if(file.size>25*1024*1024){setNotice("File 25 MB se chhoti honi chahiye.");return;}setBusy(true);const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");const path=`${selected.id}/${user.id}/${Date.now()}-${safe}`;const {error:upErr}=await supabase.storage.from("af-chat-attachments").upload(path,file,{contentType:file.type||"application/octet-stream"});if(upErr)setNotice(`File upload nahi hui: ${upErr.message}. SQL migration run karein.`);else{const {error}=await supabase.from("af_chat_messages").insert({session_id:selected.id,sender:"admin",message:`Attachment: ${file.name}`,attachment_path:path,attachment_name:file.name,attachment_mime:file.type});if(error)setNotice(error.message);else{const {data}=await supabase.from("af_chat_messages").select("*").eq("session_id",selected.id).order("created_at");setMessages(data||[]);}}setBusy(false);};
+  const adminOpenAttachment=async path=>{const {data,error}=await supabase.storage.from("af-chat-attachments").createSignedUrl(path,300);if(error)setNotice(error.message);else window.open(data.signedUrl,"_blank","noopener,noreferrer");};
   const endSelected=async()=>{if(!selected||!['pending','active'].includes(selected.status))return;if(!window.confirm("Kya aap is customer ki chat end karna chahte hain?"))return;setBusy(true);const {error}=await supabase.rpc("af_end_chat",{p_session_id:selected.id});if(error)setNotice(error.message);else{setNotice("Chat end kar di gayi hai. Aage ka wallet charge ruk gaya hai.");await load();}setBusy(false);};
   const createCoupon=async e=>{e.preventDefault();setBusy(true);setNotice("");const {data,error}=await supabase.rpc("af_admin_create_coupon",{p_code:couponCode.trim().toUpperCase(),p_amount:Number(couponAmount),p_max_uses:Number(couponUses),p_expires_at:couponExpiry?new Date(couponExpiry+"T23:59:59").toISOString():null});if(error)setNotice(error.message);else{setNotice(`Coupon ${data?.code||couponCode.toUpperCase()} create ho gaya. Amount ₹${couponAmount}, total uses ${couponUses}.`);setCouponCode("");setCouponAmount("");setCouponUses("1");setCouponExpiry("");}setBusy(false);};
   const visible=sessions.filter(s=>filter==="all"?true:s.status===filter);
@@ -453,7 +473,7 @@ function AdminPage({user}) {
     <div className="admin-chat-summary"><div><strong>{counts.pending}</strong><span>New requests</span></div><div><strong>{counts.active}</strong><span>Active chats</span></div><div><strong>{counts.ended}</strong><span>Ended chats</span></div></div>
     <div className="admin-chat-tabs">{[["pending","New Requests"],["active","Active Chats"],["ended","Chat History"],["all","All Chats"]].map(([v,label])=><button key={v} className={filter===v?"active":""} onClick={()=>setFilter(v)}>{label}</button>)}<button className="admin-refresh" onClick={load}>Refresh</button></div>
     <div className="admin-chat-layout"><div className="admin-session-list">{visible.length===0?<p className="muted-note">Is section mein abhi koi chat nahi hai.</p>:visible.map(s=><button key={s.id} className={`admin-session ${selected?.id===s.id?"selected":""}`} onClick={()=>choose(s)}><strong>{s.customer_name||s.customer_email||"Customer"}</strong><small>{s.customer_email||s.customer_id}</small><small>Expert: {s.expert_name}</small><small>{s.status} · ₹{s.rate_per_minute}/min</small><small>{new Date(s.created_at).toLocaleString("en-IN")}</small></button>)}</div>
-      <div className="admin-chat-window">{selected?<><div className="chat-session-head"><div><strong>{selected.customer_name||selected.customer_email||"Customer"}</strong><small>{selected.customer_email||selected.customer_id} · Expert: {selected.expert_name}</small></div><span>{selected.status}</span></div><div className="chat-messages">{messages.length===0?<p className="muted-note">Abhi koi message nahi hai.</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="admin"?"mine":"theirs"}`}><small>{m.sender==="admin"?"Admin":"Customer"}</small><p>{m.message}</p><small>{new Date(m.created_at).toLocaleString("en-IN")}</small></div>)}</div>{selected.status==="pending"&&<button className="primary-btn" disabled={busy} onClick={()=>accept(selected)}>Accept Chat</button>}{selected.status==="active"&&<form className="chat-compose" onSubmit={send}><input value={reply} onChange={e=>setReply(e.target.value)} placeholder="Customer ko reply likhein..."/><button className="primary-btn" disabled={busy||!reply.trim()}>Send</button></form>}{["pending","active"].includes(selected.status)&&<div className="chat-actions"><span>{selected.status==="active"?`Active · ₹${selected.rate_per_minute}/minute`:"Customer is waiting for acceptance"}</span><button className="secondary-btn" type="button" disabled={busy} onClick={endSelected}>End Chat</button></div>}{selected.status==="ended"&&<p className="notice-inline">Yeh chat end ho chuki hai. History read-only hai.</p>}</>:<p className="muted-note">Customer ki request select karein. Nayi request yahan automatically refresh hogi.</p>}</div></div>{notice&&<p className="notice-inline">{notice}</p>}</section>;
+      <div className="admin-chat-window">{selected?<><div className="chat-session-head"><div><strong>{selected.customer_name||selected.customer_email||"Customer"}</strong><small>{selected.customer_email||selected.customer_id} · Expert: {selected.expert_name}</small></div><span>{selected.status==="active"?`${String(Math.floor(chatSeconds/60)).padStart(2,"0")}:${String(chatSeconds%60).padStart(2,"0")}`:selected.status}</span></div><div className="chat-messages">{messages.length===0?<p className="muted-note">Abhi koi message nahi hai.</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="admin"?"mine":"theirs"}`}><small>{m.sender==="admin"?"Admin":"Customer"}</small><p>{m.attachment_path?<button className="attachment-link" type="button" onClick={()=>adminOpenAttachment(m.attachment_path)}>📎 {m.attachment_name||m.message} · Open file</button>:m.message}</p><small>{new Date(m.created_at).toLocaleString("en-IN")}</small></div>)}</div>{selected.status==="pending"&&<button className="primary-btn" disabled={busy} onClick={()=>accept(selected)}>Accept Chat</button>}{selected.status==="active"&&<form className="chat-compose" onSubmit={send}><input value={reply} onChange={e=>setReply(e.target.value)} placeholder="Customer ko reply likhein..."/><label className="file-attach">Attach<input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xls,.xlsx" onChange={adminUpload} hidden/></label><button className="primary-btn" disabled={busy||!reply.trim()}>Send</button></form>}{["pending","active"].includes(selected.status)&&<div className="chat-actions"><span>{selected.status==="active"?`Active · ₹${selected.rate_per_minute}/minute`:"Customer is waiting for acceptance"}</span><button className="secondary-btn" type="button" disabled={busy} onClick={endSelected}>End Chat</button></div>}{selected.status==="ended"&&<p className="notice-inline">Yeh chat end ho chuki hai. History read-only hai.</p>}</>:<p className="muted-note">Customer ki request select karein. Nayi request yahan automatically refresh hogi.</p>}</div></div>{notice&&<p className="notice-inline">{notice}</p>}</section>;
 }
 
 function NotFound(){return <section className="page-section narrow-page"><div className="info-card"><h2>Page not found</h2><Link className="text-link" to="/">Return Home →</Link></div></section>;}
