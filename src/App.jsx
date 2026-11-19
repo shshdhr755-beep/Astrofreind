@@ -218,33 +218,36 @@ function BookingPage({user}) {
     if(!birthDate||!birthPlace.trim()||!birthTime){setNotice("Date of Birth, Birth Place aur Birth Time bharna zaroori hai.");return;}
     if(isMatching&&(!partnerBirthDate||!partnerBirthPlace.trim()||!partnerBirthTime)){setNotice("Kundli Matching ke liye doosre vyakti ki Date of Birth, Birth Place aur Birth Time bhi bharein.");return;}
     setBusy(true);setNotice("");setReport("");
-    if(isHumanChat){
-      const requiredRate=expert.level==="Senior"?5:4;
-      const {data:walletData,error:walletError}=await supabase.from("af_wallets").select("balance").eq("user_id",user.id).maybeSingle();
-      if(walletError){setNotice("Wallet check nahi ho paya: "+walletError.message);setBusy(false);return;}
-      if(Number(walletData?.balance||0)<requiredRate){setNotice(`Aapke wallet mein kam se kam ₹${requiredRate} hona zaroori hai. Pehle Wallet mein paise add karein ya coupon redeem karein.`);setBusy(false);return;}
-    }
     const bookingPayload={
       customer_id:user.id, expert_name:expertName, service_name:serviceName,
       customer_name:name.trim(), customer_phone:null,
       birth_date:birthDate, birth_place:birthPlace.trim(), birth_time:birthTime,
       message:message.trim()||null, consultation_price:getPrice(expert,service)
     };
-    const {error}=await supabase.from("af_bookings").insert(bookingPayload);
-    if(error){setNotice(error.message);setBusy(false);return;}
     if(isHumanChat){
+      // The database RPC is authoritative: it locks/checks the wallet and creates
+      // the pending session before a booking row is allowed to be inserted.
       const perMinute=expert.level==="Senior"?5:4;
-      const {error:chatError}=await supabase.rpc("af_create_chat_request",{
+      const {data:chatSessionId,error:chatError}=await supabase.rpc("af_create_chat_request",{
         p_expert_name:expertName,
         p_rate_per_minute:perMinute
       });
       if(chatError){
-        setNotice("Booking save ho gayi, lekin Admin Chat Request nahi bani: "+chatError.message);
+        setNotice(chatError.message||"Wallet balance kam hai ya chat request create nahi hui.");
+        setBusy(false);return;
+      }
+      const {error:bookingError}=await supabase.from("af_bookings").insert(bookingPayload);
+      if(bookingError){
+        // Avoid leaving an orphaned pending chat if the related booking fails.
+        await supabase.rpc("af_end_chat",{p_session_id:chatSessionId});
+        setNotice("Chat request create hui, lekin booking details save nahi hui: "+bookingError.message);
         setBusy(false);return;
       }
       setNotice("Booking aur Human Chat Request dono submit ho gayi hain. Admin ke accept karne ka intezar karein.");
       setBusy(false);return;
     }
+    const {error}=await supabase.from("af_bookings").insert(bookingPayload);
+    if(error){setNotice(error.message);setBusy(false);return;}
     try{
       const response=await fetch("/.netlify/functions/astro-ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         service:serviceName,
