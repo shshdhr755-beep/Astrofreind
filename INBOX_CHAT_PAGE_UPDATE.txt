@@ -1,0 +1,11 @@
+ASTROFRIEND – INBOX / CHAT PAGE UPDATE
+
+Changes in this update:
+1. Removed Inbox from the top navigation bar.
+2. Added a My Chat Inbox entry section on the Home page.
+3. The /inbox page now shows only the customer's list of expert requests/conversations.
+4. Selecting an item opens its own dedicated /chat/<session-id> page.
+5. Booking information submission and expert-reply notification links open the dedicated chat page.
+6. Existing chat messages, attachment upload/download, status polling, timer and wallet charging calls are retained in the dedicated chat page.
+
+No Supabase schema change is required for this navigation/page separation. Keep your existing .env file and run the SQL migrations already provided in the supabase folder if they have not previously been applied.

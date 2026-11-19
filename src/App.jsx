@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams, useParams } from "react-router-dom";
 import { supabase } from "./supabase";
 import { experts, services, getPrice } from "./data/catalog";
 
@@ -63,13 +63,13 @@ function AppShell() {
       <button className="menu-toggle" onClick={() => setMobileMenu(v => !v)} aria-label="Toggle navigation">☰</button>
       <nav className={mobileMenu ? "nav-links open" : "nav-links"}>
         <NavLink to="/">Home</NavLink><NavLink to="/services">Services</NavLink>
-        {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/wallet">Wallet</NavLink><NavLink to="/inbox">Inbox</NavLink><NavLink to="/astro-ai">Astrology Guidance</NavLink></>}
+        {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/wallet">Wallet</NavLink><NavLink to="/astro-ai">Astrology Guidance</NavLink></>}
       </nav>
       <div className="nav-actions">
         {user ? <span className="user-chip">{user.user_metadata?.full_name || user.email}</span> : <><Link className="nav-button ghost-button" to="/login">Login</Link><Link className="nav-button" to="/signup">Sign Up</Link></>}
       </div>
     </header>
-    {replyNotice && <div className="notice-inline reply-toast"><span>Expert ka naya reply: {replyNotice.message}</span> <Link to={`/inbox?session=${replyNotice.sessionId}`}>Open chat</Link> <button type="button" onClick={()=>setReplyNotice(null)} aria-label="Dismiss">×</button></div>}
+    {replyNotice && <div className="notice-inline reply-toast"><span>Expert ka naya reply: {replyNotice.message}</span> <Link to={`/chat/${replyNotice.sessionId}`}>Open chat</Link> <button type="button" onClick={()=>setReplyNotice(null)} aria-label="Dismiss">×</button></div>}
     <main><Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/services" element={<ServicesPage />} />
@@ -83,6 +83,7 @@ function AppShell() {
       <Route path="/wallet" element={<Protected user={user}><WalletPage user={user} /></Protected>} />
       <Route path="/chat" element={<Protected user={user}><ChatPage user={user} /></Protected>} />
       <Route path="/inbox" element={<Protected user={user}><InboxPage user={user} /></Protected>} />
+      <Route path="/chat/:sessionId" element={<Protected user={user}><ChatConversationPage user={user} /></Protected>} />
       <Route path="/astro-ai" element={<Protected user={user}><AstroAIPage user={user} /></Protected>} />
       <Route path="/admin" element={<Protected user={user}><AdminPage user={user} /></Protected>} />
       <Route path="*" element={<NotFound />} />
@@ -95,6 +96,7 @@ function SectionHeading({ eyebrow = "ASTROFRIEND", title, text }) { return <div 
 function HomePage() {
   return <>
     <ExpertsPage embedded />
+    <section className="home-inbox-entry"><div><strong>Already sent your information?</strong><p>Open your expert requests and continue your conversations.</p></div><Link className="primary-btn" to="/inbox">My Chat Inbox</Link></section>
     <section className="section"><SectionHeading title="Our Services" text="Choose the service you need. Final price depends on the selected expert."/><div className="service-grid">{services.map((s,i)=><ServiceCard key={s.name} service={s} icon={["☼","☾","✧","◉","◉","✦","♧"][i]}/>)}</div></section>
   </>;
 }
@@ -251,8 +253,8 @@ function BookingPage({user}) {
       if(chatError){setNotice(chatError.message||"Error funds: wallet balance kam hai.");setBusy(false);return;}
       const {error:saveError}=await supabase.rpc("af_save_chat_booking",{...bookingPayload,p_session_id:sessionId});
       if(saveError){await supabase.rpc("af_end_chat",{p_session_id:sessionId});setNotice(saveError.message||"Booking save nahi hui.");setBusy(false);return;}
-      setNotice("Information successfully send ho gayi. Aapki chat inbox khol rahe hain...");
-      setBusy(false);navigate(`/inbox?session=${sessionId}`);return;
+      setNotice("Information successfully send ho gayi. Aapki private chat khol rahe hain...");
+      setBusy(false);navigate(`/chat/${sessionId}`);return;
     }
     // Fixed-price reports are charged only when the report is successfully generated.
     if(price>0){
@@ -354,30 +356,42 @@ function ChatPage({user}) {
   </section>;
 }
 function InboxPage({user}) {
-  const [params,setParams]=useSearchParams();
-  const [sessions,setSessions]=useState([]),[selected,setSelected]=useState(null),[messages,setMessages]=useState([]),[notice,setNotice]=useState(""),[seconds,setSeconds]=useState(0),[sending,setSending]=useState(false);
-  const selectedId=params.get("session");
+  const [sessions,setSessions]=useState([]),[notice,setNotice]=useState(""),[loading,setLoading]=useState(true);
   const load=async()=>{
     const {data,error}=await supabase.from("af_chat_sessions").select("*").eq("customer_id",user.id).order("created_at",{ascending:false});
-    if(error){setNotice(error.message);return;}
-    const rows=data||[];setSessions(rows);
-    const target=(selectedId&&rows.find(x=>x.id===selectedId))||(selected&&rows.find(x=>x.id===selected.id))||rows[0]||null;
-    if(target){setSelected(target);const {data:m,error:me}=await supabase.from("af_chat_messages").select("*").eq("session_id",target.id).order("created_at");if(!me)setMessages(m||[]);}
+    if(error)setNotice(error.message);else setSessions(data||[]);
+    setLoading(false);
   };
-  useEffect(()=>{load();const id=setInterval(load,2500);return()=>clearInterval(id);},[user.id,selectedId,selected?.id]);
-  useEffect(()=>{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission().catch(()=>{});},[]);
-  useEffect(()=>{if(!selected||selected.status!=="active"||!selected.started_at)return;const tick=()=>setSeconds(Math.max(0,Math.floor((Date.now()-new Date(selected.started_at).getTime())/1000)));tick();const id=setInterval(tick,1000);return()=>clearInterval(id);},[selected?.id,selected?.status,selected?.started_at]);
-  useEffect(()=>{if(!selected||selected.status!=="active")return;const id=setInterval(async()=>{const {data,error}=await supabase.rpc("af_charge_chat_minute",{p_session_id:selected.id});if(error)setNotice(error.message);else if(data?.ended){setNotice("Wallet balance khatam hone par chat end ho gayi.");await load();}},5000);return()=>clearInterval(id);},[selected?.id,selected?.status]);
-
-  const endSelected=async()=>{if(!selected||!["pending","active"].includes(selected.status))return;const {error}=await supabase.rpc("af_end_chat",{p_session_id:selected.id});if(error)setNotice(error.message);else setNotice("Chat end kar di gayi hai. Aage ka charge nahi katega.");await load();};
-  const send=async e=>{e.preventDefault();const input=e.currentTarget.querySelector('input[type="text"]');const text=input?.value.trim();if(!text||!selected||selected.status!=="active")return;setSending(true);const {error}=await supabase.from("af_chat_messages").insert({session_id:selected.id,sender:"customer",message:text});if(error)setNotice(error.message);else{input.value="";await load();}setSending(false);};
-  const upload=async e=>{const file=e.target.files?.[0];e.target.value="";if(!file||!selected||selected.status!=="active")return;if(file.size>25*1024*1024){setNotice("File 25 MB se chhoti honi chahiye.");return;}setSending(true);const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");const path=`${selected.id}/${user.id}/${Date.now()}-${safe}`;const {error:upErr}=await supabase.storage.from("af-chat-attachments").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});if(upErr){setNotice(`File upload nahi hui: ${upErr.message}. SQL migration run karna zaroori hai.`);setSending(false);return;}const {error}=await supabase.from("af_chat_messages").insert({session_id:selected.id,sender:"customer",message:`Attachment: ${file.name}`,attachment_path:path,attachment_name:file.name,attachment_mime:file.type});if(error)setNotice(error.message);else await load();setSending(false);};
-  const openAttachment=async path=>{const {data,error}=await supabase.storage.from("af-chat-attachments").createSignedUrl(path,300);if(error)setNotice(error.message);else window.open(data.signedUrl,"_blank","noopener,noreferrer");};
+  useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id);},[user.id]);
   return <section className="page-section"><SectionHeading title="My Chat Inbox" text="Your expert requests and conversations."/>
-    <div className="inbox-layout"><div className="inbox-list">{sessions.length===0?<p className="muted-note">Abhi koi chat request nahi hai. Home page se expert select karein.</p>:sessions.map(s=><button key={s.id} className={`inbox-item ${selected?.id===s.id?"selected":""}`} onClick={()=>{setSelected(s);setParams({session:s.id});}}><strong>{s.expert_name}</strong><span>{s.status==="pending"?"Waiting for expert":s.status==="active"?"Live chat":"Completed"}</span><small>{new Date(s.created_at).toLocaleString("en-IN")}</small><small>₹{s.rate_per_minute}/minute</small></button>)}</div>
-    <div className="inbox-conversation">{selected?<><div className="chat-session-head"><div><strong>{selected.expert_name}</strong><small>{selected.status==="pending"?"Request sent · Waiting for expert":`${selected.status} · ₹${selected.rate_per_minute}/minute`}</small></div>{selected.status==="active"&&<div className="chat-clock">{String(Math.floor(seconds/60)).padStart(2,"0")}:{String(seconds%60).padStart(2,"0")}</div>}</div><div className="chat-messages">{messages.length===0?<p className="muted-note">{selected.status==="pending"?"Your information has been sent. Chat will open when the expert accepts.":"No messages yet."}</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="customer"?"mine":"theirs"}`}><small>{m.sender==="customer"?"You":"Expert"}</small><p>{m.attachment_path?<button className="attachment-link" type="button" onClick={()=>openAttachment(m.attachment_path)}>📎 {m.attachment_name||m.message} · Open file</button>:m.message}</p><small>{new Date(m.created_at).toLocaleString("en-IN")}</small></div>)}</div>{selected.status==="active"&&<form className="chat-compose" onSubmit={send}><input type="text" placeholder="Type your message..." maxLength="2000"/><label className="file-attach">Attach<input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xls,.xlsx" onChange={upload} hidden/></label><button className="primary-btn" disabled={sending}>Send</button></form>}<div className="chat-actions"><span>{selected.status==="active"?`Timer running · ₹${selected.rate_per_minute}/minute`:selected.status==="pending"?"Waiting for expert acceptance":"Chat completed"}</span>{["pending","active"].includes(selected.status)&&<button className="secondary-btn" type="button" onClick={endSelected}>End Chat</button>}</div></>:<p className="muted-note">Chat open karne ke liye left side se request select karein.</p>}</div></div>{notice&&<p className="notice-inline">{notice}</p>}
+    <div className="inbox-list-page">
+      {loading?<p className="muted-note">Loading your conversations...</p>:sessions.length===0?<div className="form-card"><p className="muted-note">Abhi koi chat request nahi hai. Home page se expert select karein.</p><Link className="primary-btn" to="/">Meet Our Experts</Link></div>:sessions.map(s=><Link key={s.id} className="inbox-item inbox-item-link" to={`/chat/${s.id}`}><strong>{s.expert_name}</strong><span>{s.status==="pending"?"Waiting for expert":s.status==="active"?"Live chat":"Completed"}</span><small>{new Date(s.created_at).toLocaleString("en-IN")}</small><small>₹{s.rate_per_minute}/minute</small><b>Open Chat →</b></Link>)}
+    </div>{notice&&<p className="notice-inline">{notice}</p>}
   </section>;
 }
+function ChatConversationPage({user}) {
+  const {sessionId}=useParams();
+  const [session,setSession]=useState(null),[messages,setMessages]=useState([]),[notice,setNotice]=useState(""),[seconds,setSeconds]=useState(0),[sending,setSending]=useState(false);
+  const load=async()=>{
+    const {data,error}=await supabase.from("af_chat_sessions").select("*").eq("id",sessionId).eq("customer_id",user.id).maybeSingle();
+    if(error||!data){setNotice(error?.message||"Chat nahi mili.");return;}
+    setSession(data);
+    const {data:rows,error:messageError}=await supabase.from("af_chat_messages").select("*").eq("session_id",sessionId).order("created_at");
+    if(!messageError)setMessages(rows||[]);
+  };
+  useEffect(()=>{load();const id=setInterval(load,2500);return()=>clearInterval(id);},[sessionId,user.id]);
+  useEffect(()=>{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission().catch(()=>{});},[]);
+  useEffect(()=>{if(!session||session.status!=="active"||!session.started_at)return;const tick=()=>setSeconds(Math.max(0,Math.floor((Date.now()-new Date(session.started_at).getTime())/1000)));tick();const id=setInterval(tick,1000);return()=>clearInterval(id);},[session?.id,session?.status,session?.started_at]);
+  useEffect(()=>{if(!session||session.status!=="active")return;const id=setInterval(async()=>{const {data,error}=await supabase.rpc("af_charge_chat_minute",{p_session_id:session.id});if(error)setNotice(error.message);else if(data?.ended){setNotice("Wallet balance khatam hone par chat end ho gayi.");await load();}},5000);return()=>clearInterval(id);},[session?.id,session?.status]);
+  const send=async e=>{e.preventDefault();const input=e.currentTarget.querySelector('input[type="text"]');const text=input?.value.trim();if(!text||!session||session.status!=="active")return;setSending(true);const {error}=await supabase.from("af_chat_messages").insert({session_id:session.id,sender:"customer",message:text});if(error)setNotice(error.message);else{input.value="";await load();}setSending(false);};
+  const upload=async e=>{const file=e.target.files?.[0];e.target.value="";if(!file||!session||session.status!=="active")return;if(file.size>25*1024*1024){setNotice("File 25 MB se chhoti honi chahiye.");return;}setSending(true);const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");const path=`${session.id}/${user.id}/${Date.now()}-${safe}`;const {error:upErr}=await supabase.storage.from("af-chat-attachments").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});if(upErr)setNotice(`File upload nahi hui: ${upErr.message}. SQL migration run karna zaroori hai.`);else{const {error}=await supabase.from("af_chat_messages").insert({session_id:session.id,sender:"customer",message:`Attachment: ${file.name}`,attachment_path:path,attachment_name:file.name,attachment_mime:file.type});if(error)setNotice(error.message);else await load();}setSending(false);};
+  const openAttachment=async path=>{const {data,error}=await supabase.storage.from("af-chat-attachments").createSignedUrl(path,300);if(error)setNotice(error.message);else window.open(data.signedUrl,"_blank","noopener,noreferrer");};
+  const endSelected=async()=>{if(!session||!["pending","active"].includes(session.status))return;const {error}=await supabase.rpc("af_end_chat",{p_session_id:session.id});if(error)setNotice(error.message);else setNotice("Chat end kar di gayi hai. Aage ka charge nahi katega.");await load();};
+  return <section className="page-section"><div className="chat-page-top"><Link className="secondary-btn" to="/inbox">← Back to Inbox</Link></div><SectionHeading title={session?.expert_name||"Expert Chat"} text="Your private conversation with the selected expert."/>
+    {!session?<p className="muted-note">Loading chat...</p>:<div className="chat-panel"><div className="chat-session-head"><div><strong>{session.expert_name}</strong><small>{session.status==="pending"?"Request sent · Waiting for expert":`${session.status} · ₹${session.rate_per_minute}/minute`}</small></div>{session.status==="active"&&<div className="chat-clock">{String(Math.floor(seconds/60)).padStart(2,"0")}:{String(seconds%60).padStart(2,"0")}</div>}</div><div className="chat-messages">{messages.length===0?<p className="muted-note">{session.status==="pending"?"Your information has been sent. Chat will open when the expert accepts.":"No messages yet."}</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="customer"?"mine":"theirs"}`}><small>{m.sender==="customer"?"You":"Expert"}</small><p>{m.attachment_path?<button className="attachment-link" type="button" onClick={()=>openAttachment(m.attachment_path)}>📎 {m.attachment_name||m.message} · Open file</button>:m.message}</p><small>{new Date(m.created_at).toLocaleString("en-IN")}</small></div>)}</div>{session.status==="active"&&<form className="chat-compose" onSubmit={send}><input type="text" placeholder="Type your message..." maxLength="2000"/><label className="file-attach">Attach<input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xls,.xlsx" onChange={upload} hidden/></label><button className="primary-btn" disabled={sending}>Send</button></form>}<div className="chat-actions"><span>{session.status==="active"?`Timer running · ₹${session.rate_per_minute}/minute`:session.status==="pending"?"Waiting for expert acceptance":"Chat completed"}</span>{["pending","active"].includes(session.status)&&<button className="secondary-btn" type="button" onClick={endSelected}>End Chat</button>}</div></div>}{notice&&<p className="notice-inline">{notice}</p>}
+  </section>;
+}
+
 function AstroAIPage({user}) {
   const [question,setQuestion]=useState("");
   const [messages,setMessages]=useState([{role:"assistant",content:"Namaste! AstroFriend Consultation mein aapka swagat hai. Main Kundli, astrology, numerology, rashifal, grah-gochar aur traditional future guidance se jude sawalon mein madad kar sakta hoon. Aap apna sawal poochhein."}]);
