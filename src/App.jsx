@@ -227,7 +227,16 @@ function BookingPage({user}) {
     const {error}=await supabase.from("af_bookings").insert(bookingPayload);
     if(error){setNotice(error.message);setBusy(false);return;}
     if(isHumanChat){
-      setNotice("Booking request submit ho gayi. Aapki chat request selected real expert ko bhej di gayi hai.");
+      const perMinute=expert.level==="Senior"?5:4;
+      const {error:chatError}=await supabase.rpc("af_create_chat_request",{
+        p_expert_name:expertName,
+        p_rate_per_minute:perMinute
+      });
+      if(chatError){
+        setNotice("Booking save ho gayi, lekin Admin Chat Request nahi bani: "+chatError.message);
+        setBusy(false);return;
+      }
+      setNotice("Booking aur Human Chat Request dono submit ho gayi hain. Admin ke accept karne ka intezar karein.");
       setBusy(false);return;
     }
     try{
