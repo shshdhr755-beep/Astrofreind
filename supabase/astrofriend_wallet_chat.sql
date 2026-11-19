@@ -165,3 +165,76 @@ drop policy if exists af_bookings_customer_insert on public.af_bookings;
 create policy af_bookings_customer_insert on public.af_bookings
   for insert to authenticated with check (customer_id=auth.uid());
 grant select,insert on public.af_bookings to authenticated;
+
+
+-- AstroFriend Consultation AI: ₹5 per started minute, charged from wallet.
+create table if not exists public.af_ai_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  rate_per_minute numeric(8,2) not null default 5 check (rate_per_minute=5),
+  status text not null default 'active' check (status in ('active','ended')),
+  started_at timestamptz not null default now(),
+  next_charge_at timestamptz not null default now()+interval '1 minute',
+  ended_at timestamptz
+);
+create index if not exists af_ai_sessions_user_idx on public.af_ai_sessions(user_id,started_at desc);
+alter table public.af_ai_sessions enable row level security;
+drop policy if exists af_ai_sessions_own_read on public.af_ai_sessions;
+create policy af_ai_sessions_own_read on public.af_ai_sessions for select to authenticated using(user_id=auth.uid() or public.af_is_admin());
+grant select on public.af_ai_sessions to authenticated;
+
+create or replace function public.af_start_ai_consultation()
+returns uuid language plpgsql security definer set search_path=public
+as $$
+declare v_id uuid; v_balance numeric;
+begin
+ if auth.uid() is null then raise exception 'Please login first.'; end if;
+ insert into public.af_wallets(user_id) values(auth.uid()) on conflict(user_id) do nothing;
+ select balance into v_balance from public.af_wallets where user_id=auth.uid() for update;
+ if coalesce(v_balance,0)<5 then raise exception 'AI Consultation ke liye wallet mein kam se kam ₹5 hone chahiye. Pehle wallet top up karein.'; end if;
+ update public.af_wallets set balance=balance-5,updated_at=now() where user_id=auth.uid() returning balance into v_balance;
+ insert into public.af_wallet_transactions(user_id,amount,kind,description)
+ values(auth.uid(),-5,'chat_debit','AstroFriend Consultation AI · first minute');
+ insert into public.af_ai_sessions(user_id) values(auth.uid()) returning id into v_id;
+ return v_id;
+end; $$;
+
+create or replace function public.af_charge_ai_minute(p_session_id uuid)
+returns jsonb language plpgsql security definer set search_path=public
+as $$
+declare s public.af_ai_sessions%rowtype; b numeric; v_charged integer:=0;
+begin
+ select * into s from public.af_ai_sessions where id=p_session_id for update;
+ if not found or (s.user_id<>auth.uid() and not public.af_is_admin()) then raise exception 'AI consultation session not found.'; end if;
+ if s.status<>'active' then
+   select balance into b from public.af_wallets where user_id=s.user_id;
+   return jsonb_build_object('charged',false,'ended',true,'balance',coalesce(b,0));
+ end if;
+ select balance into b from public.af_wallets where user_id=s.user_id for update;
+ while s.next_charge_at<=now() loop
+   if coalesce(b,0)<5 then
+     update public.af_ai_sessions set status='ended',ended_at=now() where id=s.id;
+     return jsonb_build_object('charged',v_charged>0,'ended',true,'balance',coalesce(b,0));
+   end if;
+   update public.af_wallets set balance=balance-5,updated_at=now() where user_id=s.user_id returning balance into b;
+   insert into public.af_wallet_transactions(user_id,amount,kind,description)
+   values(s.user_id,-5,'chat_debit','AstroFriend Consultation AI · minute charge');
+   v_charged:=v_charged+1;
+   s.next_charge_at:=s.next_charge_at+interval '1 minute';
+ end loop;
+ update public.af_ai_sessions set next_charge_at=s.next_charge_at where id=s.id;
+ return jsonb_build_object('charged',v_charged>0,'ended',false,'balance',b,'minutes_charged',v_charged);
+end; $$;
+
+create or replace function public.af_end_ai_consultation(p_session_id uuid)
+returns void language plpgsql security definer set search_path=public
+as $$
+begin
+ update public.af_ai_sessions set status='ended',ended_at=now()
+ where id=p_session_id and user_id=auth.uid() and status='active';
+ if not found then raise exception 'Active AI consultation not found.'; end if;
+end; $$;
+
+grant execute on function public.af_start_ai_consultation() to authenticated;
+grant execute on function public.af_charge_ai_minute(uuid) to authenticated;
+grant execute on function public.af_end_ai_consultation(uuid) to authenticated;

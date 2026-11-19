@@ -41,7 +41,7 @@ function AppShell() {
       <button className="menu-toggle" onClick={() => setMobileMenu(v => !v)} aria-label="Toggle navigation">☰</button>
       <nav className={mobileMenu ? "nav-links open" : "nav-links"}>
         <NavLink to="/">Home</NavLink><NavLink to="/services">Services</NavLink><NavLink to="/experts">Experts</NavLink>
-        {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/wallet">Wallet</NavLink><NavLink to="/chat">Expert Chat</NavLink><NavLink to="/inbox">Inbox</NavLink><NavLink to="/astro-ai">Astrology Guidance</NavLink></>}
+        {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/wallet">Wallet</NavLink><NavLink to="/inbox">Inbox</NavLink><NavLink to="/astro-ai">Astrology Guidance</NavLink></>}
       </nav>
       <div className="nav-actions">
         {user ? <><span className="user-chip">{user.user_metadata?.full_name || user.email}</span><button className="nav-button ghost-button" onClick={logout}>Logout</button></> : <><Link className="nav-button ghost-button" to="/login">Login</Link><Link className="nav-button" to="/signup">Sign Up</Link></>}
@@ -286,7 +286,7 @@ function VerifyPage() {
 function Protected({user,children}) { return user?children:<Navigate to="/login" replace/>; }
 
 function AccountPage({user}) {
-  return <section className="page-section narrow-page"><SectionHeading title="My Account" text="Your AstroFriend customer account."/><div className="info-card"><div className="account-avatar">{(user.user_metadata?.full_name||user.email||"A").charAt(0).toUpperCase()}</div><h2>{user.user_metadata?.full_name||"AstroFriend Customer"}</h2><p>{user.email}</p><span className="verified-pill">✓ Email verified</span><div className="account-links"><Link className="secondary-btn" to="/booking">Book a Consultation</Link><Link className="secondary-btn" to="/wallet">My Wallet</Link><Link className="secondary-btn" to="/chat">Expert Chat</Link><Link className="secondary-btn" to="/inbox">Chat Inbox</Link><Link className="secondary-btn" to="/astro-ai">Astrology Guidance</Link></div></div></section>;
+  return <section className="page-section narrow-page"><SectionHeading title="My Account" text="Your AstroFriend customer account."/><div className="info-card"><div className="account-avatar">{(user.user_metadata?.full_name||user.email||"A").charAt(0).toUpperCase()}</div><h2>{user.user_metadata?.full_name||"AstroFriend Customer"}</h2><p>{user.email}</p><span className="verified-pill">✓ Email verified</span><div className="account-links"><Link className="secondary-btn" to="/booking">Book a Consultation</Link><Link className="secondary-btn" to="/wallet">My Wallet</Link><Link className="secondary-btn" to="/inbox">Chat Inbox</Link><Link className="secondary-btn" to="/astro-ai">Astrology Guidance</Link></div></div></section>;
 }
 function WalletPage({user}) {
   const [wallet,setWallet]=useState(null),[transactions,setTransactions]=useState([]),[loading,setLoading]=useState(true),[amount,setAmount]=useState(""),[notice,setNotice]=useState("");
@@ -331,36 +331,76 @@ function InboxPage({user}) {
     }
   };
   useEffect(()=>{load();const id=setInterval(load,5000);return()=>clearInterval(id);},[user.id,selected?.id]);
+  const endSelected=async()=>{
+    if(!selected || !["pending","active"].includes(selected.status))return;
+    const {error}=await supabase.rpc("af_end_chat",{p_session_id:selected.id});
+    if(error)setNotice(error.message);else setNotice("Chat end kar di gayi hai. Ab aage ka charge nahi katega.");
+    await load();
+  };
   return <section className="page-section"><SectionHeading title="My Chat Inbox" text="Your expert chat requests and previous conversations."/>
     <div className="inbox-layout"><div className="inbox-list">{sessions.length===0?<p className="muted-note">Abhi koi chat nahi hai. Expert Chat page se request bhejein.</p>:sessions.map(s=><button key={s.id} className={`inbox-item ${selected?.id===s.id?"selected":""}`} onClick={()=>setSelected(s)}><strong>{s.expert_name}</strong><span>{s.status==="pending"?"Waiting":s.status==="active"?"Live chat":"Completed"}</span><small>{new Date(s.created_at).toLocaleString("en-IN")}</small><small>₹{s.rate_per_minute}/minute</small></button>)}</div>
-    <div className="inbox-conversation">{selected?<><div className="chat-session-head"><div><strong>{selected.expert_name}</strong><small>{selected.status} · ₹{selected.rate_per_minute}/minute</small></div></div><div className="chat-messages">{messages.length===0?<p className="muted-note">No messages yet.</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="customer"?"mine":"theirs"}`}><small>{m.sender==="customer"?"You":"Expert"}</small><p>{m.message}</p></div>)}</div></>:<p className="muted-note">Conversation dekhne ke liye left side se chat select karein.</p>}</div></div>
+    <div className="inbox-conversation">{selected?<><div className="chat-session-head"><div><strong>{selected.expert_name}</strong><small>{selected.status} · ₹{selected.rate_per_minute}/minute</small></div></div><div className="chat-messages">{messages.length===0?<p className="muted-note">No messages yet.</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="customer"?"mine":"theirs"}`}><small>{m.sender==="customer"?"You":"Expert"}</small><p>{m.message}</p></div>)}</div>{["pending","active"].includes(selected.status)&&<div className="chat-actions"><span>{selected.status==="active"?"Chat active":"Request pending"}</span><button className="secondary-btn" type="button" onClick={endSelected}>End Chat</button></div>}</>:<p className="muted-note">Conversation dekhne ke liye left side se chat select karein.</p>}</div></div>
     {notice&&<p className="notice-inline">{notice}</p>}
   </section>;
 }
-function AstroAIPage() {
+function AstroAIPage({user}) {
   const [question,setQuestion]=useState("");
   const [messages,setMessages]=useState([{role:"assistant",content:"Namaste! AstroFriend Consultation mein aapka swagat hai. Main Kundli, astrology, numerology, rashifal, grah-gochar aur traditional future guidance se jude sawalon mein madad kar sakta hoon. Aap apna sawal poochhein."}]);
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState("");
+  const [balance,setBalance]=useState(0);
+  const [sessionId,setSessionId]=useState(null);
+  const [seconds,setSeconds]=useState(0);
+  const [ended,setEnded]=useState(false);
+  const loadBalance=async()=>{const {data,error}=await supabase.from("af_wallets").select("balance").eq("user_id",user.id).maybeSingle();if(!error)setBalance(Number(data?.balance||0));};
+  useEffect(()=>{loadBalance();},[user.id]);
+  useEffect(()=>{
+    if(!sessionId||ended)return;
+    const id=setInterval(async()=>{
+      const {data,error}=await supabase.rpc("af_charge_ai_minute",{p_session_id:sessionId});
+      if(error){setNotice(error.message);return;}
+      if(data?.ended){setEnded(true);setNotice("Wallet balance khatam ho gaya. Consultation rok di gayi hai.");}
+      if(data?.charged){setBalance(Number(data.balance));setSeconds(v=>v+60);}
+      if(data?.balance!==undefined)setBalance(Number(data.balance));
+    },5000);
+    return()=>clearInterval(id);
+  },[sessionId,ended]);
   const send=async e=>{
     e.preventDefault();
-    const prompt=question.trim();if(!prompt||busy)return;
-    const next=[...messages,{role:"user",content:prompt}];
-    setMessages(next);setQuestion("");setBusy(true);setNotice("");
+    const prompt=question.trim();if(!prompt||busy||ended)return;
+    setBusy(true);setNotice("");
     try{
-      const response=await fetch("/.netlify/functions/astro-ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:next.slice(-12).map(m=>({role:m.role,content:m.content}))})});
+      let activeSession=sessionId;
+      if(!activeSession){
+        const {data,error}=await supabase.rpc("af_start_ai_consultation");
+        if(error)throw new Error(error.message);
+        activeSession=data?.session_id||data;
+        if(!activeSession)throw new Error("Consultation session start nahi hua.");
+        setSessionId(activeSession);setBalance(v=>Math.max(0,v-5));
+      }
+      const next=[...messages,{role:"user",content:prompt}];
+      setMessages(next);setQuestion("");
+      const {data:authData}=await supabase.auth.getSession();
+      const response=await fetch("/.netlify/functions/astro-ai",{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${authData?.session?.access_token||""}`},body:JSON.stringify({sessionId:activeSession,messages:next.slice(-12).map(m=>({role:m.role,content:m.content}))})});
       const data=await response.json();
       if(!response.ok)throw new Error(data.error||"AI service abhi available nahi hai.");
       setMessages(v=>[...v,{role:"assistant",content:data.reply}]);
+      await loadBalance();
     }catch(err){setNotice(err.message||"AI se response nahi mila.");}
     finally{setBusy(false);}
   };
+  const endConsultation=async()=>{
+    if(!sessionId)return;
+    const {error}=await supabase.rpc("af_end_ai_consultation",{p_session_id:sessionId});
+    if(error)setNotice(error.message);else{setEnded(true);setNotice("Consultation end kar di gayi.");}
+  };
   return <section className="page-section narrow-page"><SectionHeading title="AstroFriend Consultation" text="Kundli, numerology, horoscope aur traditional astrology guidance."/>
-    <div className="ai-chat-panel"><div className="ai-chat-head"><span className="ai-orb">✦</span><div><strong>AstroFriend Consultation</strong><small>Astrology Consultation</small></div><span className="ai-online">Online</span></div>
+    <div className="form-card ai-wallet-rate"><div className="price-preview"><span>AI Consultation charges</span><strong>₹5/minute</strong></div><p className="muted-note">Har minute ₹5 aapke AstroFriend Wallet se deduct honge. Shuru karne ke liye wallet mein kam se kam ₹5 hona zaroori hai.</p><p className="muted-note">Wallet balance: ₹{balance.toFixed(2)} {sessionId&&!ended?` · Consultation time: ${Math.floor(seconds/60)} min`:""}</p>{sessionId&&!ended&&<button className="secondary-btn" type="button" onClick={endConsultation}>End Consultation</button>}</div>
+    <div className="ai-chat-panel"><div className="ai-chat-head"><span className="ai-orb">✦</span><div><strong>AstroFriend Consultation</strong><small>Automated Astrology Consultation · ₹5/minute</small></div><span className="ai-online">{ended?"Ended":"Online"}</span></div>
     <div className="ai-chat-messages">{messages.map((m,i)=><div key={i} className={`ai-message ${m.role==="user"?"user":"assistant"}`}><small>{m.role==="user"?"You":"AstroFriend Consultation"}</small><p>{m.content}</p></div>)}{busy&&<div className="ai-message assistant"><small>AstroFriend Consultation</small><p>Soch raha hoon...</p></div>}</div>
-    <form className="ai-compose" onSubmit={send}><textarea value={question} onChange={e=>setQuestion(e.target.value)} placeholder="Apna Kundli, rashifal ya numerology ka sawal likhein..." rows="2" maxLength="3000"/><button className="primary-btn" disabled={busy||!question.trim()}>{busy?"Please wait...":"Send"}</button></form>
+    <form className="ai-compose" onSubmit={send}><textarea value={question} onChange={e=>setQuestion(e.target.value)} placeholder="Apna Kundli, rashifal ya numerology ka sawal likhein..." rows="2" maxLength="3000"/><button className="primary-btn" disabled={busy||ended||!question.trim()||(!sessionId&&balance<5)}>{busy?"Please wait...":sessionId?"Send · ₹5/min":"Start · ₹5/min"}</button></form>
     {notice&&<p className="notice-inline">{notice}</p>}
-    <p className="form-footnote">AI guidance paramparik astrology/numerology par aadharit hai; ise guaranteed prediction ya professional advice na samjhein.</p></div>
+    <p className="form-footnote">Consultation shuru karte hi pehle minute ke ₹5 deduct honge. Active consultation mein har agle minute ₹5 deduct honge. AI guidance traditional astrology par aadharit hai; guaranteed prediction nahi hai.</p></div>
   </section>;
 }
 
@@ -373,7 +413,8 @@ function AdminPage({user}) {
   if(!allowed)return <section className="page-section narrow-page"><div className="info-card"><h2>Admin access restricted</h2><p>Owner access is limited to VITE_ADMIN_EMAIL. Also add the same email to the af_admins table in Supabase.</p></div></section>;
   const accept=async s=>{const {error}=await supabase.rpc("af_start_chat",{p_session_id:s.id});if(error)setNotice(error.message);else{setSelected(s);load();}};
   const send=async e=>{e.preventDefault();if(!reply.trim()||!selected)return;const {error}=await supabase.from("af_chat_messages").insert({session_id:selected.id,sender:"admin",message:reply.trim()});if(error)setNotice(error.message);else{setReply("");load();}};
-  return <section className="page-section"><SectionHeading title="Admin Chat Inbox" text="Accept customer chat requests and reply to active conversations."/><div className="admin-chat-layout"><div className="admin-session-list">{sessions.length===0?<p className="muted-note">No active or pending chats.</p>:sessions.map(s=><button key={s.id} className={`admin-session ${selected?.id===s.id?"selected":""}`} onClick={()=>setSelected(s)}><strong>{s.expert_name}</strong><small>{s.status} · ₹{s.rate_per_minute}/min</small><small>{new Date(s.created_at).toLocaleString("en-IN")}</small>{s.status==="pending"&&<span>New request</span>}</button>)}</div><div className="admin-chat-window">{selected?<><div className="chat-session-head"><strong>{selected.expert_name}</strong><span>{selected.status}</span></div><div className="chat-messages">{messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="admin"?"mine":"theirs"}`}><small>{m.sender==="admin"?"You":"Customer"}</small><p>{m.message}</p></div>)}</div>{selected.status==="pending"&&<button className="primary-btn" onClick={()=>accept(selected)}>Accept Chat</button>}{selected.status==="active"&&<form className="chat-compose" onSubmit={send}><input value={reply} onChange={e=>setReply(e.target.value)} placeholder="Reply to customer..."/><button className="primary-btn">Send</button></form>}</>:<p className="muted-note">Select a chat request to view messages.</p>}</div></div>{notice&&<p className="notice-inline">{notice}</p>}</section>;
+  const endSelected=async()=>{if(!selected||!["pending","active"].includes(selected.status))return;const {error}=await supabase.rpc("af_end_chat",{p_session_id:selected.id});if(error)setNotice(error.message);else{setSelected({...selected,status:"ended",ended_at:new Date().toISOString()});setNotice("Chat end kar di gayi hai. Aage ka wallet charge ruk gaya hai.");}await load();};
+  return <section className="page-section"><SectionHeading title="Admin Chat Inbox" text="Accept customer chat requests and reply to active conversations."/><div className="admin-chat-layout"><div className="admin-session-list">{sessions.length===0?<p className="muted-note">No active or pending chats.</p>:sessions.map(s=><button key={s.id} className={`admin-session ${selected?.id===s.id?"selected":""}`} onClick={()=>setSelected(s)}><strong>{s.expert_name}</strong><small>{s.status} · ₹{s.rate_per_minute}/min</small><small>{new Date(s.created_at).toLocaleString("en-IN")}</small>{s.status==="pending"&&<span>New request</span>}</button>)}</div><div className="admin-chat-window">{selected?<><div className="chat-session-head"><strong>{selected.expert_name}</strong><span>{selected.status}</span></div><div className="chat-messages">{messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="admin"?"mine":"theirs"}`}><small>{m.sender==="admin"?"You":"Customer"}</small><p>{m.message}</p></div>)}</div>{selected.status==="pending"&&<button className="primary-btn" onClick={()=>accept(selected)}>Accept Chat</button>}{selected.status==="active"&&<form className="chat-compose" onSubmit={send}><input value={reply} onChange={e=>setReply(e.target.value)} placeholder="Reply to customer..."/><button className="primary-btn">Send</button></form>}{["pending","active"].includes(selected.status)&&<div className="chat-actions"><span>{selected.status==="active"?"Chat active":"Request pending"}</span><button className="secondary-btn" type="button" onClick={endSelected}>End Chat</button></div>}</>:<p className="muted-note">Select a chat request to view messages.</p>}</div></div>{notice&&<p className="notice-inline">{notice}</p>}</section>;
 }
 function NotFound(){return <section className="page-section narrow-page"><div className="info-card"><h2>Page not found</h2><Link className="text-link" to="/">Return Home →</Link></div></section>;}
 export default function App(){return <BrowserRouter><AppShell/></BrowserRouter>;}
