@@ -44,7 +44,7 @@ function AppShell() {
         {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/wallet">Wallet</NavLink><NavLink to="/inbox">Inbox</NavLink><NavLink to="/astro-ai">Astrology Guidance</NavLink></>}
       </nav>
       <div className="nav-actions">
-        {user ? <><span className="user-chip">{user.user_metadata?.full_name || user.email}</span><button className="nav-button ghost-button" onClick={logout}>Logout</button></> : <><Link className="nav-button ghost-button" to="/login">Login</Link><Link className="nav-button" to="/signup">Sign Up</Link></>}
+        {user ? <span className="user-chip">{user.user_metadata?.full_name || user.email}</span> : <><Link className="nav-button ghost-button" to="/login">Login</Link><Link className="nav-button" to="/signup">Sign Up</Link></>}
       </div>
     </header>
     <main><Routes>
@@ -56,7 +56,7 @@ function AppShell() {
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/verify-email" element={<VerifyPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
-      <Route path="/account" element={<Protected user={user}><AccountPage user={user} /></Protected>} />
+      <Route path="/account" element={<Protected user={user}><AccountPage user={user} onLogout={logout} /></Protected>} />
       <Route path="/wallet" element={<Protected user={user}><WalletPage user={user} /></Protected>} />
       <Route path="/chat" element={<Protected user={user}><ChatPage user={user} /></Protected>} />
       <Route path="/inbox" element={<Protected user={user}><InboxPage user={user} /></Protected>} />
@@ -213,56 +213,47 @@ function BookingPage({user}) {
   const isMatching=serviceName.toLowerCase().includes("matching");
   const submit=async e=>{
     e.preventDefault();
-    if(!user){navigate("/login?next=/booking");return;}
+    if(!user){navigate("/login?next=/experts");return;}
     if(!expert){setNotice("Expert select nahi hua. Experts page se dobara Book Now karein.");return;}
     if(!birthDate||!birthPlace.trim()||!birthTime){setNotice("Date of Birth, Birth Place aur Birth Time bharna zaroori hai.");return;}
     if(isMatching&&(!partnerBirthDate||!partnerBirthPlace.trim()||!partnerBirthTime)){setNotice("Kundli Matching ke liye doosre vyakti ki Date of Birth, Birth Place aur Birth Time bhi bharein.");return;}
+    const price=Number(getPrice(expert,service)||0);
     setBusy(true);setNotice("");setReport("");
     const bookingPayload={
-      customer_id:user.id, expert_name:expertName, service_name:serviceName,
-      customer_name:name.trim(), customer_phone:null,
-      birth_date:birthDate, birth_place:birthPlace.trim(), birth_time:birthTime,
-      message:message.trim()||null, consultation_price:getPrice(expert,service)
+      p_expert_name:expertName,p_service_name:serviceName,p_customer_name:name.trim(),
+      p_birth_date:birthDate,p_birth_place:birthPlace.trim(),p_birth_time:birthTime,
+      p_message:message.trim()||null,p_consultation_price:price
     };
     if(isHumanChat){
-      // The database RPC is authoritative: it locks/checks the wallet and creates
-      // the pending session before a booking row is allowed to be inserted.
       const perMinute=expert.level==="Senior"?5:4;
-      const {data:chatSessionId,error:chatError}=await supabase.rpc("af_create_chat_request",{
-        p_expert_name:expertName,
-        p_rate_per_minute:perMinute
-      });
-      if(chatError){
-        setNotice(chatError.message||"Wallet balance kam hai ya chat request create nahi hui.");
-        setBusy(false);return;
-      }
-      const {error:bookingError}=await supabase.from("af_bookings").insert(bookingPayload);
-      if(bookingError){
-        // Avoid leaving an orphaned pending chat if the related booking fails.
-        await supabase.rpc("af_end_chat",{p_session_id:chatSessionId});
-        setNotice("Chat request create hui, lekin booking details save nahi hui: "+bookingError.message);
-        setBusy(false);return;
-      }
-      setNotice("Booking aur Human Chat Request dono submit ho gayi hain. Admin ke accept karne ka intezar karein.");
+      const {data:sessionId,error:chatError}=await supabase.rpc("af_create_chat_request",{p_expert_name:expertName,p_rate_per_minute:perMinute});
+      if(chatError){setNotice(chatError.message||"Error funds: wallet balance kam hai.");setBusy(false);return;}
+      const {error:saveError}=await supabase.rpc("af_save_chat_booking",{...bookingPayload,p_session_id:sessionId});
+      if(saveError){await supabase.rpc("af_end_chat",{p_session_id:sessionId});setNotice(saveError.message||"Booking save nahi hui.");setBusy(false);return;}
+      setNotice("Book request submit ho gayi. Expert ke accept karne par chat shuru hogi; paise chat ke dauran har minute katenge.");
       setBusy(false);return;
     }
-    const {error}=await supabase.from("af_bookings").insert(bookingPayload);
-    if(error){setNotice(error.message);setBusy(false);return;}
+    // Fixed-price reports are charged only when the report is successfully generated.
+    if(price>0){
+      const {data:walletData,error:walletError}=await supabase.from("af_wallets").select("balance").eq("user_id",user.id).maybeSingle();
+      if(walletError){setNotice("Error funds: wallet balance check nahi ho paya.");setBusy(false);return;}
+      if(Number(walletData?.balance||0)<price){setNotice("Error funds: wallet mein paryapt balance nahi hai.");setBusy(false);return;}
+    }
     try{
       const response=await fetch("/.netlify/functions/astro-ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        service:serviceName,
-        expertName,
+        service:serviceName,expertName,
         birthDetails:{name:name.trim(),date:birthDate,place:birthPlace.trim(),time:birthTime,
           matchingPartner:isMatching?{name:partnerName.trim(),date:partnerBirthDate,place:partnerBirthPlace.trim(),time:partnerBirthTime}:null},
         messages:[{role:"user",content:`Please prepare my ${serviceName} report using the birth details provided. Additional question or context: ${message.trim()||"Please provide the requested service report."}`}]
       })});
       const data=await response.json();
       if(!response.ok)throw new Error(data.error||"Astrology report service abhi available nahi hai.");
+      const {error:saveError}=await supabase.rpc("af_save_paid_booking",{...bookingPayload,p_charge_now:price>0});
+      if(saveError)throw new Error(saveError.message||"Booking save ya payment process nahi ho paya.");
       setReport(data.reply||"Report generate nahi ho payi.");
-      setNotice("Aapki booking submit ho gayi aur consultation report taiyar hai.");
-    }catch(err){
-      setNotice("Booking save ho gayi, lekin report abhi generate nahi hui: "+(err.message||"AI service error."));
-    }finally{setBusy(false);}
+      setNotice(price>0?"Booking submit ho gayi. Report generate hone par consultation charge wallet se deduct ho gaya.":"Booking submit ho gayi aur report taiyar hai.");
+    }catch(err){setNotice(err.message||"Report generate nahi ho payi; wallet se paise nahi kate.");}
+    finally{setBusy(false);}
   };
   return <section className="page-section narrow-page"><SectionHeading title="Book a Consultation" text="Your selected expert is already chosen. Share your birth details for the selected service."/><form className="form-card" onSubmit={submit}>
     <div className="selected-expert"><span>Selected Expert</span><strong>{expertName||"No expert selected"}</strong></div>
@@ -280,16 +271,16 @@ function BookingPage({user}) {
       <label>Time of Birth<input required type="time" value={partnerBirthTime} onChange={e=>setPartnerBirthTime(e.target.value)}/></label>
     </>}
     <label>{isHumanChat?"Message for Expert":"What would you like to know? (optional)"}<textarea rows="4" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Write your question or any additional details"/></label>
-    <button className="primary-btn full-btn" disabled={busy||!expert}>{busy?(isHumanChat?"Submitting...":"Preparing your report..."):(isHumanChat?"Submit Expert Chat Request":"Submit & Get Astrology Report")}</button>
+    <button className="primary-btn full-btn" disabled={busy||!expert}>{busy?(isHumanChat?"Submitting...":"Preparing your report..."):(isHumanChat?"Submit Expert Chat Request":"Book Request")}</button>
     {notice&&<p className="notice-inline">{notice}</p>}
     {report&&<div className="ai-report-result"><h3>Your {serviceName} Report</h3><p>{report}</p></div>}
-    <p className="form-footnote">Your birth details are used to prepare the selected astrology service. Non-chat reports are generated automatically; live chat services remain with the selected human expert.</p>
+    <p className="form-footnote">Your booking is accepted only when your wallet has sufficient funds. Human chat charges start only after the expert accepts and the chat begins; fixed-price reports are charged when the report is successfully generated.</p>
   </form></section>;
 }
 function LoginPage({user}) {
   const navigate=useNavigate(); const [params]=useSearchParams(); const [email,setEmail]=useState("");const [password,setPassword]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
-  if(user)return <Navigate to="/account" replace/>;
-  const submit=async e=>{e.preventDefault();setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;if(!data.user?.email_confirmed_at){await supabase.auth.signOut();throw new Error("Email verify nahi hua hai. Pehle 6-digit OTP verify karein.");}navigate(params.get("next")||"/account");}catch(err){setNotice(err.message||"Login nahi ho paya.");}finally{setBusy(false);}};
+  if(user)return <Navigate to="/experts" replace/>;
+  const submit=async e=>{e.preventDefault();setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;if(!data.user?.email_confirmed_at){await supabase.auth.signOut();throw new Error("Email verify nahi hua hai. Pehle 6-digit OTP verify karein.");}navigate(params.get("next")||"/experts");}catch(err){setNotice(err.message||"Login nahi ho paya.");}finally{setBusy(false);}};
   const sendReset=async()=>{if(!email.trim()){setNotice("Pehle Email Address box mein apna registered email likhein.");return;}setBusy(true);setNotice("");try{const {error}=await supabase.auth.resetPasswordForEmail(email.trim(),{redirectTo:`${window.location.origin}/reset-password`});if(error)throw error;setNotice("Password reset link aapke email par bhej diya gaya hai. Inbox aur Spam folder check karein.");}catch(err){setNotice(err.message||"Reset link nahi bheja ja saka.");}finally{setBusy(false);}};
   return <section className="page-section auth-page"><div className="form-card"><SectionHeading title="Welcome Back" text="Login with your verified email address."/><form onSubmit={submit}><label>Email Address<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><label>Password<input required type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your password"/></label><button className="primary-btn full-btn" disabled={busy}>{busy?"Please wait...":"Login"}</button></form><p className="form-footnote"><button type="button" className="text-link" onClick={sendReset} disabled={busy}>Forgot Password?</button></p>{notice&&<p className="notice-inline">{notice}</p>}<p className="form-footnote">New to AstroFriend? <Link className="text-link" to="/signup">Create an account</Link></p></div></section>;
 }
@@ -305,13 +296,13 @@ function SignupPage() {
 }
 function VerifyPage() {
   const navigate=useNavigate();const [email,setEmail]=useState(sessionStorage.getItem("astrofriend_pending_email")||"");const [otp,setOtp]=useState("");const [notice,setNotice]=useState("");const [busy,setBusy]=useState(false);
-  const submit=async e=>{e.preventDefault();if(!/^\d{6}$/.test(otp))return setNotice("कृपया 6 अंकों का OTP दर्ज करें।");setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.verifyOtp({email:email.trim(),token:otp,type:"signup"});if(error)throw error;if(!data.user?.email_confirmed_at)throw new Error("Email verification confirm nahi hua. OTP dobara check karein.");sessionStorage.removeItem("astrofriend_pending_email");navigate("/account");}catch(err){setNotice(err.message||"OTP verify nahi hua.");}finally{setBusy(false);}};
+  const submit=async e=>{e.preventDefault();if(!/^\d{6}$/.test(otp))return setNotice("कृपया 6 अंकों का OTP दर्ज करें।");setBusy(true);setNotice("");try{const {data,error}=await supabase.auth.verifyOtp({email:email.trim(),token:otp,type:"signup"});if(error)throw error;if(!data.user?.email_confirmed_at)throw new Error("Email verification confirm nahi hua. OTP dobara check karein.");sessionStorage.removeItem("astrofriend_pending_email");navigate(params.get("next")||"/experts");}catch(err){setNotice(err.message||"OTP verify nahi hua.");}finally{setBusy(false);}};
   return <section className="page-section auth-page"><div className="form-card"><SectionHeading title="Verify Your Email" text="Enter the 6-digit code sent to your email address."/><form onSubmit={submit}><label>Email Address<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/></label><label>6-Digit OTP<input required inputMode="numeric" autoComplete="one-time-code" maxLength="6" value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="123456"/></label><button className="primary-btn full-btn" disabled={busy}>{busy?"Verifying...":"Verify Email"}</button></form>{notice&&<p className="notice-inline">{notice}</p>}<p className="form-footnote"><Link className="text-link" to="/signup">Back to signup</Link></p></div></section>;
 }
 function Protected({user,children}) { return user?children:<Navigate to="/login" replace/>; }
 
-function AccountPage({user}) {
-  return <section className="page-section narrow-page"><SectionHeading title="My Account" text="Your AstroFriend customer account."/><div className="info-card"><div className="account-avatar">{(user.user_metadata?.full_name||user.email||"A").charAt(0).toUpperCase()}</div><h2>{user.user_metadata?.full_name||"AstroFriend Customer"}</h2><p>{user.email}</p><span className="verified-pill">✓ Email verified</span><div className="account-links"><Link className="secondary-btn" to="/booking">Book a Consultation</Link><Link className="secondary-btn" to="/wallet">My Wallet</Link><Link className="secondary-btn" to="/inbox">Chat Inbox</Link><Link className="secondary-btn" to="/astro-ai">Astrology Guidance</Link></div></div></section>;
+function AccountPage({user,onLogout}) {
+  return <section className="page-section narrow-page"><SectionHeading title="My Account" text="Your AstroFriend customer account."/><div className="info-card"><div className="account-avatar">{(user.user_metadata?.full_name||user.email||"A").charAt(0).toUpperCase()}</div><h2>{user.user_metadata?.full_name||"AstroFriend Customer"}</h2><p>{user.email}</p><span className="verified-pill">✓ Email verified</span><div className="account-links"><Link className="secondary-btn" to="/experts">Meet Our Experts</Link><Link className="secondary-btn" to="/wallet">My Wallet</Link><Link className="secondary-btn" to="/inbox">Chat Inbox</Link><Link className="secondary-btn" to="/astro-ai">Astrology Guidance</Link><button type="button" className="secondary-btn" onClick={onLogout}>Logout</button></div></div></section>;
 }
 function WalletPage({user}) {
   const [wallet,setWallet]=useState(null),[transactions,setTransactions]=useState([]),[loading,setLoading]=useState(true),[amount,setAmount]=useState(""),[coupon,setCoupon]=useState(""),[couponBusy,setCouponBusy]=useState(false),[notice,setNotice]=useState("");

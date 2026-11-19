@@ -24,3 +24,9 @@ Replace the project files with this ZIP and deploy through the existing GitHub/N
 
 ## Validation status
 The source changes were inspected, but a production build and live Supabase/Netlify test were not run in this environment. Test with a zero-balance customer and a customer with at least ₹4/₹5 before opening the feature to customers.
+
+## Follow-up UI and paid booking changes
+- Login and email OTP verification now route customers directly to `/experts`, not `/account`.
+- Logout was removed from the top navbar and added inside My Account.
+- The paid report booking button label is now `Book Request`.
+- Paid non-human bookings check the customer's wallet balance before inserting `af_bookings`; insufficient funds show an `Error funds` message and no booking is saved. This is a balance check only and does not deduct funds.
