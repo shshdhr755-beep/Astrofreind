@@ -238,3 +238,34 @@ end; $$;
 grant execute on function public.af_start_ai_consultation() to authenticated;
 grant execute on function public.af_charge_ai_minute(uuid) to authenticated;
 grant execute on function public.af_end_ai_consultation(uuid) to authenticated;
+
+-- Admin inbox: one owner/admin account can see all customer chat requests,
+-- including customer email/name and ended chat history.
+create or replace function public.af_admin_list_chats()
+returns table (
+  id uuid,
+  customer_id uuid,
+  customer_email text,
+  customer_name text,
+  expert_name text,
+  rate_per_minute numeric,
+  status text,
+  created_at timestamptz,
+  started_at timestamptz,
+  ended_at timestamptz
+)
+language plpgsql
+security definer
+set search_path=public,auth
+as $$
+begin
+  if not public.af_is_admin() then raise exception 'Admin access required.'; end if;
+  return query
+  select s.id, s.customer_id, u.email::text,
+    coalesce(u.raw_user_meta_data->>'full_name',u.raw_user_meta_data->>'name','Customer'),
+    s.expert_name,s.rate_per_minute,s.status,s.created_at,s.started_at,s.ended_at
+  from public.af_chat_sessions s
+  join auth.users u on u.id=s.customer_id
+  order by case s.status when 'pending' then 0 when 'active' then 1 else 2 end, s.created_at desc;
+end; $$;
+grant execute on function public.af_admin_list_chats() to authenticated;
