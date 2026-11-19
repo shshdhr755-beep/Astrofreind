@@ -139,3 +139,29 @@ grant insert on public.af_chat_messages to authenticated;
 -- insert into public.af_admins(user_id,email)
 -- select id,email from auth.users where lower(email)=lower('YOUR_ADMIN_EMAIL')
 -- on conflict(user_id) do nothing;
+
+
+-- Consultation bookings with birth details
+create table if not exists public.af_bookings (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid not null references auth.users(id) on delete cascade,
+  expert_name text not null,
+  service_name text not null,
+  customer_name text not null,
+  customer_phone text,
+  birth_date date not null,
+  birth_place text not null,
+  birth_time time not null,
+  message text,
+  consultation_price numeric(10,2) not null default 0,
+  status text not null default 'pending' check (status in ('pending','confirmed','completed','cancelled')),
+  created_at timestamptz not null default now()
+);
+alter table public.af_bookings enable row level security;
+drop policy if exists af_bookings_customer_select on public.af_bookings;
+create policy af_bookings_customer_select on public.af_bookings
+  for select to authenticated using (customer_id=auth.uid() or public.af_is_admin());
+drop policy if exists af_bookings_customer_insert on public.af_bookings;
+create policy af_bookings_customer_insert on public.af_bookings
+  for insert to authenticated with check (customer_id=auth.uid());
+grant select,insert on public.af_bookings to authenticated;
