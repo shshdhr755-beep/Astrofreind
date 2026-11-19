@@ -50,7 +50,7 @@ function AppShell() {
     <main><Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/services" element={<ServicesPage />} />
-      <Route path="/experts" element={<ExpertsPage />} />
+      <Route path="/experts" element={<Protected user={user}><ExpertsPage /></Protected>} />
       <Route path="/booking" element={<BookingPage user={user} />} />
       <Route path="/login" element={<LoginPage user={user} />} />
       <Route path="/signup" element={<SignupPage />} />
@@ -75,13 +75,118 @@ function HomePage() {
 }
 function ServiceCard({ service, icon = "✦" }) { return <article className="service-card"><span className="service-icon">{icon}</span><h3>{service.name}</h3><p>{service.senior === 0 ? "Complimentary daily guidance." : "Choose an expert and view the applicable consultation charge."}</p><strong className="service-price">{service.senior === 0 ? "FREE" : `₹${service.other} – ₹${service.senior}`}</strong><small className="service-caption">{service.senior === 0 ? "No charge" : "Price depends on expert category"}</small></article>; }
 function ServicesPage() { return <section className="page-section"><SectionHeading title="Our Services" text="Choose the service you need. Final price depends on the selected expert."/><div className="service-grid">{services.map((s,i)=><ServiceCard key={s.name} service={s} icon={["☼","☾","✧","◉","◉","✦","♧"][i]}/>)}</div></section>; }
+
 function ExpertsPage() {
-  const [search,setSearch] = useState(""); const [filter,setFilter] = useState("All");
-  const filtered = useMemo(()=>experts.filter(e=>e.name.toLowerCase().includes(search.toLowerCase())&&(filter==="All"||e.level===filter)),[search,filter]);
-  return <section className="page-section"><SectionHeading title="Meet Our Experts" text="Browse our 29 listed experts and compare consultation rates."/><div className="expert-tools"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search expert name..."/><span className="result-count">{filtered.length} experts</span></div><div className="filter-list">{["All","Senior","Other"].map(f=><button key={f} className={filter===f?"filter active":"filter"} onClick={()=>setFilter(f)}>{f==="All"?"All Experts":f==="Senior"?"Senior Experts":"Other Experts"}</button>)}</div><div className="expert-grid">{filtered.map((expert,i)=><article className="expert-card" key={expert.name}><div className="expert-top"><div className="avatar">
-  <img src={expert.photo} alt={expert.name} />
-</div><span className="status offline">Listed Expert</span></div><div className="expert-info"><span className="rating">✦ {expert.level} category</span><h3>{expert.name}</h3><p className="expert-category">{expert.level==="Senior"?"Senior Expert":"Expert"}</p><p className="experience">Consultation charges vary by service.</p><div className="expert-bottom"><span className="price">From ₹{Math.min(...services.filter(s=>s.senior>0).map(s=>expert.level==="Senior"?s.senior:s.other))}<small> / service</small></span><Link className="view-btn" to={`/booking?expert=${encodeURIComponent(expert.name)}`}>View & Book</Link></div></div></article>)}</div>{filtered.length===0&&<div className="empty-state">No experts found. Try another name.</div>}</section>;
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("All");
+
+  const filtered = useMemo(
+    () =>
+      experts.filter(
+        e =>
+          e.name.toLowerCase().includes(search.toLowerCase()) &&
+          (filter === "All" || e.level === filter)
+      ),
+    [search, filter]
+  );
+
+  return (
+    <section className="page-section">
+      <SectionHeading
+        title="Meet Our Experts"
+        text="Browse our 29 listed experts and compare consultation rates."
+      />
+
+      <div className="expert-tools">
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search expert name..."
+        />
+        <span className="result-count">
+          {filtered.length} experts
+        </span>
+      </div>
+
+      <div className="filter-list">
+        {["All", "Senior", "Other"].map(f => (
+          <button
+            key={f}
+            className={filter === f ? "filter active" : "filter"}
+            onClick={() => setFilter(f)}
+          >
+            {f === "All"
+              ? "All Experts"
+              : f === "Senior"
+              ? "Senior Experts"
+              : "Other Experts"}
+          </button>
+        ))}
+      </div>
+
+      <div className="expert-grid">
+        {filtered.map(expert => (
+          <article className="expert-card" key={expert.name}>
+            <div className="expert-top">
+              <div className="avatar">
+                <img src={expert.photo} alt={expert.name} />
+              </div>
+              <span className="status offline">Listed Expert</span>
+            </div>
+
+            <div className="expert-info">
+              <span className="rating">
+                ⭐ {expert.rating} / 5
+              </span>
+
+              <h3>{expert.name}</h3>
+
+              <p className="expert-category">
+                {expert.level === "Senior"
+                  ? "Senior Expert"
+                  : "Expert"}
+              </p>
+
+              <p className="experience">
+                {expert.experience} Years of Experience
+              </p>
+
+              <div className="expert-bottom">
+                <span className="price">
+                  From ₹
+                  {Math.min(
+                    ...services
+                      .filter(s => s.senior > 0)
+                      .map(s =>
+                        expert.level === "Senior"
+                          ? s.senior
+                          : s.other
+                      )
+                  )}
+                  <small> / service</small>
+                </span>
+
+                <Link
+                  className="view-btn"
+                  to={`/booking?expert=${encodeURIComponent(expert.name)}`}
+                >
+                  View & Book
+                </Link>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="empty-state">
+          No experts found. Try another name.
+        </div>
+      )}
+    </section>
+  );
 }
+
 function BookingPage({user}) {
   const [params] = useSearchParams(); const navigate=useNavigate();
   const [expertName,setExpertName]=useState(params.get("expert")||""); const [serviceName,setServiceName]=useState(services[0].name); const [name,setName]=useState(user?.user_metadata?.full_name||""); const [phone,setPhone]=useState(""); const [message,setMessage]=useState(""); const [notice,setNotice]=useState("");
