@@ -60,8 +60,7 @@ function AppShell() {
   return <div className="app-shell">
     <header className="navbar">
       <Link className="brand" to="/"><span className="brand-icon">✦</span><span>Astro<span>Friend</span></span></Link>
-      <button className="menu-toggle" onClick={() => setMobileMenu(v => !v)} aria-label="Toggle navigation">☰</button>
-      <nav className={mobileMenu ? "nav-links open" : "nav-links"}>
+      <nav className="nav-links">
         <NavLink to="/">Home</NavLink><NavLink to="/services">Services</NavLink>
         {user && <><NavLink to="/account">My Account</NavLink><NavLink to="/wallet">Wallet</NavLink><NavLink to="/astro-ai">Astrology Guidance</NavLink></>}
       </nav>
@@ -88,6 +87,13 @@ function AppShell() {
       <Route path="/admin" element={<Protected user={user}><AdminPage user={user} /></Protected>} />
       <Route path="*" element={<NotFound />} />
     </Routes></main>
+    {user && <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
+      <NavLink to="/" end><span>⌂</span><small>Home</small></NavLink>
+      <NavLink to="/services"><span>▦</span><small>Services</small></NavLink>
+      <NavLink to="/inbox"><span>▤</span><small>Inbox</small></NavLink>
+      <NavLink to="/wallet"><span>◉</span><small>Wallet</small></NavLink>
+      <NavLink to="/account"><span>♙</span><small>Account</small></NavLink>
+    </nav>}
     <footer className="footer"><Link className="brand footer-brand" to="/"><span className="brand-icon">✦</span><span>Astro<span>Friend</span></span></Link><p>Connect with astrology experts for guidance and consultations.</p><small>© {new Date().getFullYear()} AstroFriend. All rights reserved.</small></footer>
   </div>;
 }
@@ -250,7 +256,7 @@ function BookingPage({user}) {
     if(isHumanChat){
       const perMinute=expert.level==="Senior"?5:4;
       const {data:sessionId,error:chatError}=await supabase.rpc("af_create_chat_request",{p_expert_name:expertName,p_rate_per_minute:perMinute});
-      if(chatError){setNotice(chatError.message||"Error funds: wallet balance kam hai.");setBusy(false);return;}
+      if(chatError){setNotice(chatError.message||"Insufficient Wallet Balance");setBusy(false);return;}
       const {error:saveError}=await supabase.rpc("af_save_chat_booking",{...bookingPayload,p_session_id:sessionId});
       if(saveError){await supabase.rpc("af_end_chat",{p_session_id:sessionId});setNotice(saveError.message||"Booking save nahi hui.");setBusy(false);return;}
       setNotice("Information successfully send ho gayi. Aapki private chat khol rahe hain...");
@@ -295,7 +301,7 @@ function BookingPage({user}) {
     </>}
     <label>{isHumanChat?"Message for Expert":"What would you like to know? (optional)"}<textarea rows="4" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Write your question or any additional details"/></label>
     <button className="primary-btn full-btn" disabled={busy||!expert}>{busy?(isHumanChat?"Submitting...":"Preparing your report..."):(isHumanChat?"Send Information":"Send Information")}</button>
-    {notice&&<p className="notice-inline">{notice}</p>}
+    {notice&&<div className="notice-inline">{notice}{/wallet|balance|fund|₹/i.test(notice)&&<Link className="add-funds-inline" to="/wallet">Add Amount →</Link>}</div>}
     {report&&<div className="ai-report-result"><h3>Your {serviceName} Report</h3><p>{report}</p></div>}
     <p className="form-footnote">Your request is confirmed when your wallet has enough balance. Chat charges start only after the expert accepts and the chat begins.</p>
   </form></section>;
@@ -371,24 +377,49 @@ function InboxPage({user}) {
 }
 function ChatConversationPage({user}) {
   const {sessionId}=useParams();
-  const [session,setSession]=useState(null),[messages,setMessages]=useState([]),[notice,setNotice]=useState(""),[seconds,setSeconds]=useState(0),[sending,setSending]=useState(false);
+  const navigate=useNavigate();
+  const [session,setSession]=useState(null),[messages,setMessages]=useState([]),[notice,setNotice]=useState(""),[seconds,setSeconds]=useState(0),[sending,setSending]=useState(false),[showAttach,setShowAttach]=useState(false),[balance,setBalance]=useState(0);
   const load=async()=>{
     const {data,error}=await supabase.from("af_chat_sessions").select("*").eq("id",sessionId).eq("customer_id",user.id).maybeSingle();
     if(error||!data){setNotice(error?.message||"Chat nahi mili.");return;}
     setSession(data);
-    const {data:rows,error:messageError}=await supabase.from("af_chat_messages").select("*").eq("session_id",sessionId).order("created_at");
+    const [{data:rows,error:messageError},{data:wallet}] = await Promise.all([
+      supabase.from("af_chat_messages").select("*").eq("session_id",sessionId).order("created_at"),
+      supabase.from("af_wallets").select("balance").eq("user_id",user.id).maybeSingle()
+    ]);
     if(!messageError)setMessages(rows||[]);
+    setBalance(Number(wallet?.balance||0));
   };
   useEffect(()=>{load();const id=setInterval(load,2500);return()=>clearInterval(id);},[sessionId,user.id]);
-  useEffect(()=>{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission().catch(()=>{});},[]);
   useEffect(()=>{if(!session||session.status!=="active"||!session.started_at)return;const tick=()=>setSeconds(Math.max(0,Math.floor((Date.now()-new Date(session.started_at).getTime())/1000)));tick();const id=setInterval(tick,1000);return()=>clearInterval(id);},[session?.id,session?.status,session?.started_at]);
-  useEffect(()=>{if(!session||session.status!=="active")return;const id=setInterval(async()=>{const {data,error}=await supabase.rpc("af_charge_chat_minute",{p_session_id:session.id});if(error)setNotice(error.message);else if(data?.ended){setNotice("Wallet balance khatam hone par chat end ho gayi.");await load();}},5000);return()=>clearInterval(id);},[session?.id,session?.status]);
-  const send=async e=>{e.preventDefault();const input=e.currentTarget.querySelector('input[type="text"]');const text=input?.value.trim();if(!text||!session||session.status!=="active")return;setSending(true);const {error}=await supabase.from("af_chat_messages").insert({session_id:session.id,sender:"customer",message:text});if(error)setNotice(error.message);else{input.value="";await load();}setSending(false);};
-  const upload=async e=>{const file=e.target.files?.[0];e.target.value="";if(!file||!session||session.status!=="active")return;if(file.size>25*1024*1024){setNotice("File 25 MB se chhoti honi chahiye.");return;}setSending(true);const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");const path=`${session.id}/${user.id}/${Date.now()}-${safe}`;const {error:upErr}=await supabase.storage.from("af-chat-attachments").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});if(upErr)setNotice(`File upload nahi hui: ${upErr.message}. SQL migration run karna zaroori hai.`);else{const {error}=await supabase.from("af_chat_messages").insert({session_id:session.id,sender:"customer",message:`Attachment: ${file.name}`,attachment_path:path,attachment_name:file.name,attachment_mime:file.type});if(error)setNotice(error.message);else await load();}setSending(false);};
+  useEffect(()=>{if(!session||session.status!=="active")return;const id=setInterval(async()=>{const {data,error}=await supabase.rpc("af_charge_chat_minute",{p_session_id:session.id});if(error)setNotice(error.message);else if(data?.ended){setNotice("Wallet balance khatam hone par chat end ho gayi.");await load();}else if(data?.balance!==undefined)setBalance(Number(data.balance));},5000);return()=>clearInterval(id);},[session?.id,session?.status]);
+  const send=async e=>{e.preventDefault();const form=e.currentTarget;const text=form.elements.namedItem("chatMessage")?.value.trim();if(!text||!session||session.status!=="active")return;setSending(true);const {error}=await supabase.from("af_chat_messages").insert({session_id:session.id,sender:"customer",message:text});if(error)setNotice(error.message);else await load();form.reset();setSending(false);};
+  const upload=async e=>{const file=e.target.files?.[0];e.target.value="";if(!file||!session||session.status!=="active")return;if(file.size>25*1024*1024){setNotice("File 25 MB se chhoti honi chahiye.");return;}setSending(true);const safe=file.name.replace(/[^a-zA-Z0-9._-]/g,"_");const path=`${session.id}/${user.id}/${Date.now()}-${safe}`;const {error:upErr}=await supabase.storage.from("af-chat-attachments").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});if(upErr)setNotice(`File upload nahi hui: ${upErr.message}. SQL migration run karna zaroori hai.`);else{const {error}=await supabase.from("af_chat_messages").insert({session_id:session.id,sender:"customer",message:`Attachment: ${file.name}`,attachment_path:path,attachment_name:file.name,attachment_mime:file.type});if(error)setNotice(error.message);else await load();}setSending(false);setShowAttach(false);};
   const openAttachment=async path=>{const {data,error}=await supabase.storage.from("af-chat-attachments").createSignedUrl(path,300);if(error)setNotice(error.message);else window.open(data.signedUrl,"_blank","noopener,noreferrer");};
-  const endSelected=async()=>{if(!session||!["pending","active"].includes(session.status))return;const {error}=await supabase.rpc("af_end_chat",{p_session_id:session.id});if(error)setNotice(error.message);else setNotice("Chat end kar di gayi hai. Aage ka charge nahi katega.");await load();};
-  return <section className="page-section"><div className="chat-page-top"><Link className="secondary-btn" to="/inbox">← Back to Inbox</Link></div><SectionHeading title={session?.expert_name||"Expert Chat"} text="Your private conversation with the selected expert."/>
-    {!session?<p className="muted-note">Loading chat...</p>:<div className="chat-panel"><div className="chat-session-head"><div><strong>{session.expert_name}</strong><small>{session.status==="pending"?"Request sent · Waiting for expert":`${session.status} · ₹${session.rate_per_minute}/minute`}</small></div>{session.status==="active"&&<div className="chat-clock">{String(Math.floor(seconds/60)).padStart(2,"0")}:{String(seconds%60).padStart(2,"0")}</div>}</div><div className="chat-messages">{messages.length===0?<p className="muted-note">{session.status==="pending"?"Your information has been sent. Chat will open when the expert accepts.":"No messages yet."}</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="customer"?"mine":"theirs"}`}><small>{m.sender==="customer"?"You":"Expert"}</small><p>{m.attachment_path?<button className="attachment-link" type="button" onClick={()=>openAttachment(m.attachment_path)}>📎 {m.attachment_name||m.message} · Open file</button>:m.message}</p><small>{new Date(m.created_at).toLocaleString("en-IN")}</small></div>)}</div>{session.status==="active"&&<form className="chat-compose" onSubmit={send}><input type="text" placeholder="Type your message..." maxLength="2000"/><label className="file-attach">Attach<input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xls,.xlsx" onChange={upload} hidden/></label><button className="primary-btn" disabled={sending}>Send</button></form>}<div className="chat-actions"><span>{session.status==="active"?`Timer running · ₹${session.rate_per_minute}/minute`:session.status==="pending"?"Waiting for expert acceptance":"Chat completed"}</span>{["pending","active"].includes(session.status)&&<button className="secondary-btn" type="button" onClick={endSelected}>End Chat</button>}</div></div>}{notice&&<p className="notice-inline">{notice}</p>}
+  const endSelected=async()=>{if(!session||!["pending","active"].includes(session.status))return;const {error}=await supabase.rpc("af_end_chat",{p_session_id:session.id});if(error)setNotice(error.message);else setNotice("Chat end kar di gayi hai. Aap baad mein dobara chat shuru kar sakte hain.");await load();};
+  const restart=async()=>{
+    if(!session)return;
+    setSending(true);setNotice("");
+    const {data,error}=await supabase.rpc("af_create_chat_request",{p_expert_name:session.expert_name,p_rate_per_minute:session.rate_per_minute});
+    if(error){setNotice(error.message||"Insufficient Wallet Balance");setSending(false);return;}
+    navigate(`/chat/${data}`);
+  };
+  const secondsToCharge=session?.next_charge_at?Math.max(0,Math.ceil((new Date(session.next_charge_at).getTime()-Date.now())/1000)):60;
+  const needsFunds=session?.status==="active"&&secondsToCharge<=10&&balance<Number(session.rate_per_minute);
+  return <section className="page-section chat-full-page">
+    <div className="chat-page-top"><Link className="secondary-btn" to="/inbox">← Back to Inbox</Link></div>
+    <SectionHeading title={session?.expert_name||"Expert Chat"} text="Your private conversation with the selected expert."/>
+    {!session?<p className="muted-note">Loading chat...</p>:<div className="chat-panel chat-full-panel">
+      <div className="chat-session-head"><div><strong>{session.expert_name}</strong><small>{session.status==="pending"?"Request sent · Waiting for expert":`${session.status} · ₹${session.rate_per_minute}/minute`}</small></div>{session.status==="active"&&<div className="chat-clock">{String(Math.floor(seconds/60)).padStart(2,"0")}:{String(seconds%60).padStart(2,"0")}</div>}</div>
+      {needsFunds&&<div className="chat-funds-warning"><span>10 seconds left · Wallet balance kam hai</span><Link to="/wallet">Add Funds +</Link></div>}
+      <div className="chat-messages chat-full-messages">{messages.length===0?<p className="muted-note">{session.status==="pending"?"Your information has been sent. Chat will open when the expert accepts.":"No messages yet."}</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="customer"?"mine":"theirs"}`}><small>{m.sender==="customer"?"You":"Expert"}</small><p>{m.attachment_path?<button className="attachment-link" type="button" onClick={()=>openAttachment(m.attachment_path)}> {m.attachment_name||m.message} · Open file</button>:m.message}</p><small>{new Date(m.created_at).toLocaleString("en-IN")}</small></div>)}</div>
+      {session.status==="active"&&<form className="chat-compose chat-full-compose" onSubmit={send}>
+        <div className="attach-wrap"><button type="button" className="attach-plus" aria-label="Attach file" onClick={()=>setShowAttach(v=>!v)}>+</button>{showAttach&&<div className="attach-menu"><label>Photo / Video<input type="file" accept="image/*,video/*" onChange={upload} hidden/></label><label>Document<input type="file" accept=".pdf,.doc,.docx,.txt,.xls,.xlsx" onChange={upload} hidden/></label></div>}</div>
+        <input name="chatMessage" type="text" placeholder="Type your message..." maxLength="2000" disabled={sending}/>
+        <button className="primary-btn" disabled={sending}>Send</button>
+      </form>}
+      <div className="chat-actions"><span>{session.status==="active"?`Timer running · ₹${session.rate_per_minute}/minute · Wallet ₹${balance.toFixed(2)}`:session.status==="pending"?"Waiting for expert acceptance": "Chat completed"}</span>{["pending","active"].includes(session.status)&&<button className="secondary-btn" type="button" onClick={endSelected}>End Chat</button>}{session.status==="ended"&&<button className="primary-btn" type="button" disabled={sending} onClick={restart}>Start Chat Again · ₹{session.rate_per_minute}/min</button>}</div>
+    </div>}{notice&&<div className="notice-inline">{notice}{/wallet|balance|fund|₹/i.test(notice)&&<Link className="add-funds-inline" to="/wallet">Add Amount →</Link>}</div>}
   </section>;
 }
 
@@ -487,7 +518,7 @@ function AdminPage({user}) {
     <div className="admin-chat-summary"><div><strong>{counts.pending}</strong><span>New requests</span></div><div><strong>{counts.active}</strong><span>Active chats</span></div><div><strong>{counts.ended}</strong><span>Ended chats</span></div></div>
     <div className="admin-chat-tabs">{[["pending","New Requests"],["active","Active Chats"],["ended","Chat History"],["all","All Chats"]].map(([v,label])=><button key={v} className={filter===v?"active":""} onClick={()=>setFilter(v)}>{label}</button>)}<button className="admin-refresh" onClick={load}>Refresh</button></div>
     <div className="admin-chat-layout"><div className="admin-session-list">{visible.length===0?<p className="muted-note">Is section mein abhi koi chat nahi hai.</p>:visible.map(s=><button key={s.id} className={`admin-session ${selected?.id===s.id?"selected":""}`} onClick={()=>choose(s)}><strong>{s.customer_name||s.customer_email||"Customer"}</strong><small>{s.customer_email||s.customer_id}</small><small>Expert: {s.expert_name}</small><small>{s.status} · ₹{s.rate_per_minute}/min</small><small>{new Date(s.created_at).toLocaleString("en-IN")}</small></button>)}</div>
-      <div className="admin-chat-window">{selected?<><div className="chat-session-head"><div><strong>{selected.customer_name||selected.customer_email||"Customer"}</strong><small>{selected.customer_email||selected.customer_id} · Expert: {selected.expert_name}</small></div><span>{selected.status==="active"?`${String(Math.floor(chatSeconds/60)).padStart(2,"0")}:${String(chatSeconds%60).padStart(2,"0")}`:selected.status}</span></div><div className="chat-messages">{messages.length===0?<p className="muted-note">Abhi koi message nahi hai.</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="admin"?"mine":"theirs"}`}><small>{m.sender==="admin"?"Admin":"Customer"}</small><p>{m.attachment_path?<button className="attachment-link" type="button" onClick={()=>adminOpenAttachment(m.attachment_path)}>📎 {m.attachment_name||m.message} · Open file</button>:m.message}</p><small>{new Date(m.created_at).toLocaleString("en-IN")}</small></div>)}</div>{selected.status==="pending"&&<button className="primary-btn" disabled={busy} onClick={()=>accept(selected)}>Accept Chat</button>}{selected.status==="active"&&<form className="chat-compose" onSubmit={send}><input value={reply} onChange={e=>setReply(e.target.value)} placeholder="Customer ko reply likhein..."/><label className="file-attach">Attach<input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xls,.xlsx" onChange={adminUpload} hidden/></label><button className="primary-btn" disabled={busy||!reply.trim()}>Send</button></form>}{["pending","active"].includes(selected.status)&&<div className="chat-actions"><span>{selected.status==="active"?`Active · ₹${selected.rate_per_minute}/minute`:"Customer is waiting for acceptance"}</span><button className="secondary-btn" type="button" disabled={busy} onClick={endSelected}>End Chat</button></div>}{selected.status==="ended"&&<p className="notice-inline">Yeh chat end ho chuki hai. History read-only hai.</p>}</>:<p className="muted-note">Customer ki request select karein. Nayi request yahan automatically refresh hogi.</p>}</div></div>{notice&&<p className="notice-inline">{notice}</p>}</section>;
+      <div className="admin-chat-window">{selected?<><div className="chat-session-head"><div><strong>{selected.customer_name||selected.customer_email||"Customer"}</strong><small>{selected.customer_email||selected.customer_id} · Expert: {selected.expert_name}</small></div><span>{selected.status==="active"?`${String(Math.floor(chatSeconds/60)).padStart(2,"0")}:${String(chatSeconds%60).padStart(2,"0")}`:selected.status}</span></div><div className="chat-messages">{messages.length===0?<p className="muted-note">Abhi koi message nahi hai.</p>:messages.map(m=><div key={m.id} className={`chat-bubble ${m.sender==="admin"?"mine":"theirs"}`}><small>{m.sender==="admin"?"Admin":"Customer"}</small><p>{m.attachment_path?<button className="attachment-link" type="button" onClick={()=>adminOpenAttachment(m.attachment_path)}>📎 {m.attachment_name||m.message} · Open file</button>:m.message}</p><small>{new Date(m.created_at).toLocaleString("en-IN")}</small></div>)}</div>{selected.status==="pending"&&<button className="primary-btn" disabled={busy} onClick={()=>accept(selected)}>Accept Chat</button>}{selected.status==="active"&&<form className="chat-compose" onSubmit={send}><input value={reply} onChange={e=>setReply(e.target.value)} placeholder="Customer ko reply likhein..."/><label className="file-attach attach-plus" title="Attach photo, video or document">+<input type="file" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xls,.xlsx" onChange={adminUpload} hidden/></label><button className="primary-btn" disabled={busy||!reply.trim()}>Send</button></form>}{["pending","active"].includes(selected.status)&&<div className="chat-actions"><span>{selected.status==="active"?`Active · ₹${selected.rate_per_minute}/minute`:"Customer is waiting for acceptance"}</span><button className="secondary-btn" type="button" disabled={busy} onClick={endSelected}>End Chat</button></div>}{selected.status==="ended"&&<p className="notice-inline">Yeh chat end ho chuki hai. History read-only hai.</p>}</>:<p className="muted-note">Customer ki request select karein. Nayi request yahan automatically refresh hogi.</p>}</div></div>{notice&&<p className="notice-inline">{notice}</p>}</section>;
 }
 
 function NotFound(){return <section className="page-section narrow-page"><div className="info-card"><h2>Page not found</h2><Link className="text-link" to="/">Return Home →</Link></div></section>;}
