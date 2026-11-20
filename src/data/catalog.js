@@ -37,11 +37,11 @@ export const experts = expertData.map((expert, index) => ({
 }));
 
 export const services = [
+  { name: "Chat – 5 Minutes", senior: 25, other: 20 },
+  { name: "Chat – 30 Minutes", senior: 99, other: 79 },
   { name: "Basic Kundli", senior: 49, other: 39 },
   { name: "Daily Horoscope", senior: 0, other: 0 },
   { name: "Kundli Matching", senior: 99, other: 79 },
-  { name: "Chat – 5 Minutes", senior: 25, other: 20 },
-  { name: "Chat – 30 Minutes", senior: 99, other: 79 },
   { name: "Detailed Kundli", senior: 199, other: 149 },
   { name: "Personal Consultation – 30 Minutes", senior: 199, other: 149 },
 ];

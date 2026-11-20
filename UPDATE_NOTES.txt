@@ -1,0 +1,17 @@
+AstroFriend professional mobile update
+
+Included:
+- Removed the footer branding block from the rendered app.
+- Removed the separate Home-page My Chat Inbox card; Inbox remains in bottom navigation.
+- Improved booking form field sizing and spacing for consistent input boxes.
+- Refined mobile bottom navigation to a simpler native-app style.
+- Made the customer chat view use a fixed mobile viewport with a scrollable messages area.
+- Kept attachment, typing, and Send controls on one row on mobile.
+
+Important:
+- This ZIP intentionally does NOT include .env, .git, node_modules, or dist.
+- Keep your existing C:\Users\dilra\astrofriend\.env file unchanged.
+- Extract and copy the contents of the astrofriend folder into your existing project folder, replacing files when prompted.
+- Do not replace or delete .env.
+- Run npm run build and then npm run dev -- --host 0.0.0.0.
+- This environment could not complete npm dependency installation, so a production build has NOT been verified here.

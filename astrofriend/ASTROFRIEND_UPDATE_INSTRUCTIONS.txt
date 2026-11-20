@@ -1,0 +1,28 @@
+AstroFriend update: remove Expert Chat navbar shortcut + AI consultation ₹5/minute
+
+IMPORTANT: Apply the database update before using AI billing.
+
+1) Supabase Dashboard > SQL Editor.
+2) Open supabase/astrofriend_wallet_chat.sql from this ZIP and run the COMPLETE file.
+   The new section at the bottom creates af_ai_sessions and the wallet charging functions.
+3) Netlify > Site configuration > Environment variables:
+   - Keep VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY configured.
+   - OPENAI_API_KEY must be configured (server-side only; never put it in VITE_ variables or frontend code).
+   - Optional OPENAI_MODEL=gpt-4o-mini
+4) Deploy the updated project to Netlify.
+
+Billing behavior:
+- The first ₹5 is deducted when the user starts the first AI message (covers the first minute).
+- ₹5 is deducted for each additional started minute while the consultation remains active.
+- The AI endpoint checks the signed-in Supabase user and active paid consultation session.
+- If the wallet cannot cover the next minute, the session ends.
+- This is separate from human expert chat, which remains unchanged.
+
+Payment/top-up limitation:
+The existing Wallet Add Money screen says online payments are not activated. This update charges an existing wallet balance; it does NOT add a payment gateway or enable wallet top-ups. Do not advertise wallet recharge as live until Razorpay/payment verification is configured.
+
+Navbar:
+The separate "Expert Chat" navbar shortcut and the duplicate Account shortcut are removed. The /chat route and human expert chat backend remain in the project.
+
+Build note:
+A production build could not be verified in this environment because dependency installation did not complete (Vite was unavailable). Run `npm ci` and `npm run build` locally before deploying.

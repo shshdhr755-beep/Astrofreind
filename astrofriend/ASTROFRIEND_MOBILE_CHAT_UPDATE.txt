@@ -1,0 +1,18 @@
+ASTROFRIEND MOBILE NAVIGATION + CHAT UPDATE
+
+Changes in this update:
+- Mobile navigation is a fixed bottom bar: Home, Services, Inbox, Wallet, Account.
+- Removed the mobile hamburger menu and mobile top navigation links.
+- Customer chat conversation layout uses the available mobile screen height.
+- Chat attachment button is a compact + menu with Photo/Video and Document options.
+- When an active chat has 10 seconds or less before its next charge and the wallet is below the per-minute rate, an Add Funds shortcut appears.
+- Ended chats keep their old history and show Start Chat Again. This creates a NEW chat session through the existing af_create_chat_request RPC, which checks wallet balance and refuses a request when funds are insufficient.
+- Booking's insufficient-wallet notice includes an Add Amount shortcut to the wallet.
+- Existing theme and colours are preserved.
+
+IMPORTANT:
+- Chat restart relies on the existing Supabase af_create_chat_request function and current wallet/chat migrations already in this project. No new SQL migration is introduced by this update.
+- The current wallet top-up screen still says online payments are not activated. The Add Funds shortcut opens the Wallet page; it does not itself process a payment.
+- The 10-second Add Funds notice is a client-side reminder. The database RPC af_charge_chat_minute remains the authority for charging and ending chats.
+- Build could not be verified in this runtime because the uploaded node_modules did not contain a runnable Vite installation. Run `npm install` then `npm run build` locally before deploying.
+- Preserve your local .env and .git folders. Do not overwrite them from this ZIP.

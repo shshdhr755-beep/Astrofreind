@@ -117,3 +117,107 @@
   .chat-full-compose input{padding:10px;font-size:14px}
   .chat-actions{flex-wrap:wrap;gap:10px}
 }
+
+
+/* AstroFriend polish pass: consistent forms, native-feeling navigation, stable chat */
+.footer{display:none!important}
+.home-inbox-entry{display:none!important}
+.form-card{width:min(100%,680px);max-width:680px;padding:clamp(20px,3vw,34px);border-radius:18px}
+.form-card label{display:flex;flex-direction:column;gap:8px;margin:18px 0;color:var(--gold);font-size:14px;line-height:1.35}
+.form-card input,.form-card select,.form-card textarea{box-sizing:border-box;width:100%;min-width:0;margin:0;padding:14px 16px;min-height:52px;border-radius:10px;font:inherit;font-size:16px;line-height:1.4}
+.form-card textarea{min-height:120px;resize:vertical}
+.birth-details-title{font-size:22px;line-height:1.3;margin:28px 0 16px;padding-bottom:12px;border-bottom:1px solid #ffffff18}
+.price-preview{min-height:76px;border-radius:12px;padding:18px 20px}
+.mobile-bottom-nav{display:none}
+@media(max-width:760px){
+ .mobile-bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:100;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:center;min-height:64px;padding:5px 8px calc(5px + env(safe-area-inset-bottom));background:#fff;border-top:1px solid #e8e8ed;box-shadow:0 -2px 12px rgba(20,20,40,.08);backdrop-filter:none}
+ .mobile-bottom-nav a{display:flex;min-width:0;min-height:52px;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#777784;text-decoration:none;font-size:10px;font-weight:500}
+ .mobile-bottom-nav a span{font-size:19px;line-height:1.15;font-weight:400}
+ .mobile-bottom-nav a small{font-size:10px;line-height:1.2}
+ .mobile-bottom-nav a.active{color:#7b5b2b}
+ .mobile-bottom-nav a.active span{transform:none}
+ .app-shell{padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+ .navbar{min-height:58px;padding:8px 16px;flex-wrap:nowrap}
+ .navbar .brand{font-size:19px}
+ .navbar .nav-actions{width:auto;margin-left:auto}
+ .navbar .nav-links,.navbar .menu-toggle{display:none!important}
+ .chat-full-page{height:calc(100dvh - 58px - 70px - env(safe-area-inset-bottom));min-height:0;padding:0;display:flex;flex-direction:column;overflow:hidden}
+ .chat-full-page>.chat-page-top{display:none}
+ .chat-full-page>.section-heading{flex:0 0 auto;margin:0;padding:12px 16px 10px;text-align:left}
+ .chat-full-page>.section-heading h1{font-size:20px;margin:2px 0 4px}
+ .chat-full-page>.section-heading p{font-size:12px;margin:0}
+ .chat-full-page>.section-heading .eyebrow{display:none}
+ .chat-full-panel{height:auto;min-height:0;flex:1;display:flex;flex-direction:column;border-radius:0;border-left:0;border-right:0;overflow:hidden}
+ .chat-session-head{flex:0 0 auto;padding:12px 16px}
+ .chat-full-messages{flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;overscroll-behavior:contain;padding:14px}
+ .chat-full-compose{flex:0 0 auto;display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));}
+ .chat-full-compose .attach-wrap{flex:0 0 40px}
+ .chat-full-compose .attach-plus{width:38px;height:38px}
+ .chat-full-compose input{flex:1 1 auto;width:0;min-width:0;height:42px;padding:9px 11px;font-size:14px}
+ .chat-full-compose .primary-btn{flex:0 0 auto;width:auto;margin:0;padding:10px 14px;min-height:42px;white-space:nowrap}
+ .chat-actions{flex:0 0 auto;padding:10px 14px;gap:8px;font-size:11px}
+ .chat-actions .secondary-btn{padding:9px 12px;white-space:nowrap}
+}
+/* Final requested navigation and support layout */
+.home-inbox-top{max-width:1100px;margin:18px auto 0;padding:0 5%;}
+.home-inbox-top a{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border:1px solid #ffffff18;border-radius:10px;background:#151426;font-weight:700;font-size:14px}
+.home-inbox-top span{color:var(--gold);font-size:12px;font-weight:500}
+.service-card-link{display:block;color:inherit;min-height:220px}
+.mobile-bottom-nav{grid-template-columns:repeat(6,minmax(0,1fr))!important}
+.support-panel{max-width:720px;margin:auto}.support-messages{min-height:300px;max-height:55vh}.support-row{padding:12px 0;border-bottom:1px solid #ffffff18}.support-row strong,.support-row small{font-size:11px;color:var(--muted)}.support-row p{font-size:13px;line-height:1.5}
+@media(max-width:760px){.mobile-bottom-nav{grid-template-columns:repeat(6,minmax(0,1fr))!important}.mobile-bottom-nav a small{font-size:9px}.home-inbox-top{margin-top:12px}}
+
+
+/* Final responsive polish: booking form controls stay inside their card on iOS/Android. */
+.chat-request-form{
+  width:100%;
+  max-width:560px;
+  min-width:0;
+  padding:clamp(16px,4vw,30px);
+  overflow:hidden;
+}
+.chat-request-form label,
+.chat-request-form .birth-details-title,
+.chat-request-form .price-preview,
+.chat-request-form .selected-expert{min-width:0;max-width:100%}
+.chat-request-form input,
+.chat-request-form select,
+.chat-request-form textarea{
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  box-sizing:border-box;
+  display:block;
+}
+.chat-request-form input[type="date"],
+.chat-request-form input[type="time"]{
+  appearance:none;
+  -webkit-appearance:none;
+  min-height:48px;
+  padding:12px 10px;
+  color-scheme:dark;
+}
+.chat-request-form textarea{min-height:112px;resize:vertical}
+.chat-request-form .price-preview{gap:12px;flex-wrap:wrap}
+.admin-customer-details{
+  margin:14px 0;
+  padding:16px;
+  border:1px solid #d7b27345;
+  border-radius:10px;
+  background:#151426;
+}
+.admin-customer-details h3{margin:0 0 13px;color:var(--gold);font-size:14px}
+.admin-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.admin-detail-grid>div{min-width:0;padding:10px;background:#0f0e1c;border-radius:8px}
+.admin-detail-grid .wide{grid-column:1/-1}
+.admin-detail-grid small,.admin-detail-grid strong{display:block;overflow-wrap:anywhere}
+.admin-detail-grid small{color:var(--muted);font-size:10px;margin-bottom:5px}
+.admin-detail-grid strong{font-size:12px;line-height:1.55;font-weight:600}
+.ai-chat-panel,.ai-compose,.ai-compose textarea{min-width:0;max-width:100%}
+.ai-compose textarea{box-sizing:border-box;width:100%}
+@media(max-width:650px){
+  .chat-request-form{padding:16px}
+  .chat-request-form input,.chat-request-form select,.chat-request-form textarea{font-size:16px}
+  .admin-detail-grid{grid-template-columns:1fr 1fr}
+  .admin-customer-details{padding:12px}
+}
